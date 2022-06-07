@@ -111,7 +111,7 @@ KEYWORDS["WVU"] = WVU
 
 PATS = {key: "|".join(keywords) for key, keywords in KEYWORDS.items()}
 
-GN250 = pd.read_csv(os.path.join(PATH_SUPP, ), sep=';', header=0,
+GN250 = pd.read_csv(os.path.join(PATH_SUPP, "GN250.csv"), sep=';', header=0,
                     low_memory=False).dropna(subset=['ARS']).drop(['OBA_WERT', 'GENUS', 'GENUS2'], axis=1)
 GN250.rename({old: new for old, new in zip(
     GN250.index, pd.RangeIndex(0, GN250.index.size))}, inplace=True)

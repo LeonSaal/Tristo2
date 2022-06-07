@@ -8,11 +8,12 @@ Created on Wed Jan  5 10:09:36 2022
 from dataclasses import dataclass
 from urllib.error import HTTPError
 from bs4 import BeautifulSoup as bs
-from .complements import TIMEOUT, HOME, SERVICE, hashf, PATS
+from click import echo
+from .complements import TIMEOUT, HOME, SERVICE, hashf, PATS, WVG_list, WVU
 from .converter import clean_data
 from .database import WVG, Response, WVG_LAU, File_Index
 from datetime import datetime
-from .demog_data import get_from_LAU, get_districts_from_comm, WVG_list
+from .demog_data import get_from_LAU, get_districts_from_comm
 from IPython.display import clear_output
 import os
 import pandas as pd
@@ -502,3 +503,85 @@ def save_HTML_tabs(tables, j, path=""):
     with pd.ExcelWriter(os.path.join(path, f"{j}_HTML.xlsx")) as writer:
         for i, df in enumerate(tables):
             df.to_excel(writer, sheet_name=f"{i}")
+
+
+def scrape_pages_WVU(query="", start=0, stop=-1, n_res=1):
+    """
+    performs google search of "comm + query",
+    opens pages of n_res results for each search term and scans pages.
+    If save==True, contents and search data are saved.
+
+    Parameters
+    ----------
+    communities : pd.DataFrame
+        list of community names.
+    query : str, optional
+        search query. The default is ''.
+    n : int, optional
+        number of consecutive searches. The default is None.
+    start : int or str, optional
+        start number or name of comm in communities. The default is None.
+    stop : int or str, optional
+        stop number or name of comm in communities. The default is None.
+    n_res : int, optional
+        number of results per search. The default is 1.
+    save : bool, optional
+        save search results. The default is True.
+    pause : float, optional
+        delay between searches. The default is 2.0.
+    user_agent : str, optional
+        user agent for identification. The default is None.
+
+    Returns
+    -------
+    None.
+
+    """
+    os.chdir(HOME)
+    folder = f"site - {query}"
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+    os.chdir(folder)
+
+    engine = create_engine(f"sqlite:///{query}.db")
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session, google_webdriver() as driver:
+        for U in WVU:
+            inst = []
+            search_string = f"site:{U} {query}"
+            res = driver.get_links(search_string, n_res)
+            for i, link in enumerate(res):
+                hash1 = hashf(link)
+                dir_page = f"{hash1}"
+                statement = select(Response).where(Response.hash == hash1)
+                if session.exec(statement).first():
+                    continue
+                if os.path.exists(dir_page):
+                    sh.rmtree(dir_page)
+                os.mkdir(dir_page)
+                os.chdir(dir_page)
+
+                req = scrape_page(i, link, None, "", hash1)
+                inst.append(req)
+                os.chdir("..")
+                try:
+                    os.rmdir(dir_page)
+                    continue
+                except OSError:
+                    pass
+
+                for file in os.listdir(dir_page):
+                    hash2 = hashf(os.path.join(hash1, file))
+                    fname, ext = os.path.splitext(file)
+                    inst.append(
+                        File_Index(hash=hash1, fname=fname, ext=ext, hash2=hash2)
+                    )
+                    print(len(inst))
+            for i in inst:
+                print(inst)
+            session.add_all(inst)
+            session.commit()
+            clear_output(wait=True)
+        os.chdir("..")
+
+    return

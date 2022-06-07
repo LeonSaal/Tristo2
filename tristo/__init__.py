@@ -6,4 +6,4 @@ Created on Wed Jan  5 10:28:22 2022
 """
 
 from .complements import hashf
-from .scraper import scrape_pages_LAU
+from .scraper import scrape_pages_LAU, scrape_pages_WVU

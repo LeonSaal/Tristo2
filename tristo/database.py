@@ -32,7 +32,7 @@ class WVG_LAU(SQLModel, table=True):
 
 
 class Response(SQLModel, table=True):
-    LAU: int = Field(default=None, primary_key=True, foreign_key="wvg_lau.LAU")
+    LAU: Optional[int] = Field(default=None, primary_key=True)
     position: int
     link: str
     b_href: str

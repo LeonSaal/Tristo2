@@ -5,6 +5,7 @@ Created on Tue Mar 29 11:21:32 2022
 @author: Leon
 """
 
+from typing import List
 import matplotlib
 import numpy as np
 from matplotlib.rcsetup import cycler
@@ -85,7 +86,7 @@ def subtitle(self, title: str):
                   textcoords='offset points', size=9, weight='bold')
 
 
-def pielabel(self, wedges, texts: [str], labeldistance: float = 1.1, x_offs: float = 0.1):
+def pielabel(self, wedges, texts: List[str], labeldistance: float = 1.1, x_offs: float = 0.1):
     for wedge, text in zip(wedges, texts):
         angle_deg = np.mean([wedge.theta1, wedge.theta2])
         angle = np.radians(angle_deg)

@@ -1,0 +1,16 @@
+Metadata-Version: 2.1
+Name: tristo
+Version: 2.2
+Summary: A package for gathering drinking water quality data
+Home-page: https://github.com/LeonSaal/Tristo2
+Author: Leon Saal
+Author-email: leon.saal@uba.de
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: GNU General Public License v3.0
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.10.4
+Description-Content-Type: text/markdown
+License-File: LICENSE
+
+# Tristo2
+ 

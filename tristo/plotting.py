@@ -4,13 +4,17 @@ Created on Thu Mar 24 13:59:31 2022
 
 @author: Leon
 """
+import locale
+import os
+
 import geopandas as gpd
 import pandas as pd
-import os
-from TriSto.database import get_vals
-from TriSto.complements import HOME
-from .uba_plot import matplotlib as mpl, cmaps, c_uba
-import locale
+
+from .database import get_vals
+from .paths import HOME
+from .uba_plot import c_uba, cmaps
+from .uba_plot import matplotlib as mpl
+
 locale.setlocale(locale.LC_ALL, 'de_DE')
 plt = mpl.pyplot
 

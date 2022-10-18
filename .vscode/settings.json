@@ -1,4 +1,5 @@
 {
     "editor.defaultFormatter": "ms-python.python",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
+    "notebook.output.textLineLimit": 50
 }

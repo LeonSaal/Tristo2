@@ -16,11 +16,10 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from .complements import PATS, UNITS, Status
-from .database import (Data, File_Cleaned, File_Index, File_Info, Param,
-                       TableData)
+from .database import Data, File_Cleaned, File_Index, File_Info, TableData
 from .index_utils import get_col, get_orientation, make_index_col
 from .paths import PATH_CONV
-from .utils import count_occ
+from .utils import count_occ, is_number
 
 ureg = UnitRegistry()
 
@@ -30,7 +29,7 @@ def tables_to_db(session: Session, **kwargs) -> None:
         select(File_Index.hash2)
         .outerjoin(File_Info)
         .outerjoin(File_Cleaned)
-        .filter(
+        .where(
             File_Cleaned.converter != Status.ERROR,
             File_Cleaned.status == None,
             File_Info.status != Status.SCAN,
@@ -75,10 +74,10 @@ def tables_to_db(session: Session, **kwargs) -> None:
         session.execute(stmt)
         session.add_all(data)
         clear_output(wait=True)
+        session.commit()
 
 
-
-def clean_data(df):
+def orient_data(df):
     new = df.copy()
     new = new.replace("", np.nan)
     if new.empty:
@@ -131,11 +130,6 @@ def clean_tables(
     return out, stats
 
 
-def clean_table(table: pd.DataFrame, thresh: float = 0.75) -> None:
-    table.dropna(axis=1, how="all", inplace=True)
-    table.dropna(axis=0, how="all", inplace=True)
-
-
 def drop_col(data: pd.DataFrame, keys, **kwargs) -> bool:
     index = get_col(data, keys, **kwargs)
     if not index.empty:
@@ -145,132 +139,12 @@ def drop_col(data: pd.DataFrame, keys, **kwargs) -> bool:
         return False
 
 
-def drop_limit_col(df: pd.DataFrame, session: Session) -> bool:
-    temp = df.reset_index()
-    mask = pd.DataFrame().reindex_like(temp)
-    for column in temp.columns:
-        for i, param, unit in temp.itertuples():
-            param = get_param(param, session=session)
-            if not param:
-                continue
-            cell = pd.to_numeric(temp.loc[i, column], errors="ignore")
-            mask.loc[i, column] = (cell == param.limit) & (unit == param.unit)
-    sums = mask.sum().astype(int)
-    if sums.max() > 0:
-        idxmax = sums.idxmax()
-        df.drop(idxmax, axis=1, inplace=True)
-        return True
-    else:
-        return False
-
-
-def get_param(param: str, session: Session):
-    stmt = (
-        select(Param.param, Param.regex)
-        .where(Param.limit != None, Param.param != None)
-        .distinct()
-    )
-    params = [set()]
-    for par, regex in session.execute(stmt).scalars():
-        if not regex:
-            regex = re.escape(par)
-        if re.search(regex, param, flags=re.I):
-            params.append(par)
-    if len(params) == 1:
-        return params[0]
-
-
 def drop_string_cols(df: pd.DataFrame, thresh: float = 0.75) -> None:
     mask = ~df.applymap(is_number)
     rel_mask = mask.sum() / df.count()
     index_col = get_col(df, PATS["PARAMS"], thresh=0.1)
     index = rel_mask[rel_mask > thresh].index.difference(index_col)
     df.drop(index, axis=1, inplace=True)
-
-
-
-
-def expand_duplicate_index(df: pd.DataFrame) -> pd.DataFrame:
-    no_dups = []
-    residue = df.copy()
-    while True:
-        dups = residue.index.duplicated()
-        no_dup = residue[~dups]
-        no_dups.append(no_dup)
-        residue = residue[dups]
-        if residue.empty:
-            break
-    for i, df in enumerate(no_dups):
-        oldies = df.columns.to_list()
-        newbs = [f"{old}.{i}" for old in oldies]
-        df.rename({old: new for old, new in zip(oldies, newbs)}, axis=1, inplace=True)
-
-    new = no_dups[0].copy()
-    for i, df in enumerate(no_dups):
-        if i == 0:
-            continue
-        else:
-            new = new.merge(df, left_index=True, right_index=True, how="outer")
-    return new
-
-
-def rescale_value(value: str or float or int, factor: float = 1):
-    if is_number(value):
-        if type(value) == str:
-            values = re.sub(r"\n.*|\s", "", value)
-            values = re.split("--|~", values)
-            floats = [float(clean_string(val)) * factor for val in values if val != ""]
-            rescaled = [
-                f"{num:.{prec(val,factor)}f}" for num, val in zip(floats, values)
-            ]
-            return " ~ ".join(rescaled)
-        if type(value) == float or type(value) == int:
-            return value * factor
-        else:
-            return value
-    else:
-        return value
-
-
-def prec(num: str, factor: float) -> int:
-
-    split = num.split(".")
-    if len(split) == 2:
-        l_num = -1 * len(split[1])
-
-    else:
-        l_num = len(split[0]) - 1
-        if split[0].startswith("-"):
-            l_num -= 1
-
-    zeros = int(l_num + np.log10(np.abs(factor)))
-    if zeros > 0:
-        return 0
-    else:
-        return -zeros
-
-
-def clean_string(string: str) -> str:
-    string = string.replace(",", ".")
-    if "-" in string:
-        string = "-" + string.strip("-")
-    if string.count(".") > 1:
-        dot = string.find(".")
-        string = string.replace(".", "")
-        string = string[:dot] + "." + string[dot:]
-    return string
-
-
-def is_number(value: str or float) -> bool:
-    value = str(value)
-    pat = r"\A([~\s+-<]*(\d)+([\.,]\d+)?[~\s+-±]*)*\Z"
-    if re.match(pat, value) or value == "nan":
-        return True
-    else:
-        return False
-
-
-
 
 
 def make_unit_col(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
@@ -308,7 +182,7 @@ def make_unit_col(df: pd.DataFrame, **kwargs) -> pd.DataFrame:
                 units = pd.Series(np.full(df.index.size, "?"))
     units = pd.Series(units.squeeze()).fillna(method="ffill").to_list()
     df.insert(0, "unit", units)
-    num_pat = "^(?P<num>[-\d,.\s<>–]+).*$"
+    num_pat = "^(?P<num>[-\d,.\s<>–nbg]+).*$"
     df.replace(regex={num_pat: "\g<num>"}, inplace=True)
     return df
 
@@ -355,7 +229,6 @@ def find_tables(tables: Mapping) -> None:
 #             new = new.merge(df, left_on=left, right_on=right, how='outer')
 #             new.drop(df.columns[index_iloc], axis=1, inplace=True)
 #     return new
-
 
 
 # def clean_index(data: pd.DataFrame, **kwargs):
@@ -719,3 +592,113 @@ def find_tables(tables: Mapping) -> None:
 #                     mapping.to_sql(
 #                         "mapping", db.conn, if_exists="append", index_label=["hash2"]
 #                     )
+
+
+# def drop_limit_col(df: pd.DataFrame, session: Session) -> bool:
+#     temp = df.reset_index()
+#     mask = pd.DataFrame().reindex_like(temp)
+#     for column in temp.columns:
+#         for i, param, unit in temp.itertuples():
+#             param = get_param(param, session=session)
+#             if not param:
+#                 continue
+#             cell = pd.to_numeric(temp.loc[i, column], errors="ignore")
+#             mask.loc[i, column] = (cell == param.limit) & (unit == param.unit)
+#     sums = mask.sum().astype(int)
+#     if sums.max() > 0:
+#         idxmax = sums.idxmax()
+#         df.drop(idxmax, axis=1, inplace=True)
+#         return True
+#     else:
+#         return False
+
+
+# def clean_table(table: pd.DataFrame, thresh: float = 0.75) -> None:
+#     table.dropna(axis=1, how="all", inplace=True)
+#     table.dropna(axis=0, how="all", inplace=True)
+
+# def get_param(param: str, session: Session):
+#     stmt = (
+#         select(Param.param, Param.regex)
+#         .where(Param.limit != None, Param.param != None)
+#         .distinct()
+#     )
+#     params = [set()]
+#     for par, regex in session.execute(stmt).scalars():
+#         if not regex:
+#             regex = re.escape(par)
+#         if re.search(regex, param, flags=re.I):
+#             params.append(par)
+#     if len(params) == 1:
+#         return params[0]
+
+
+# def expand_duplicate_index(df: pd.DataFrame) -> pd.DataFrame:
+#     no_dups = []
+#     residue = df.copy()
+#     while True:
+#         dups = residue.index.duplicated()
+#         no_dup = residue[~dups]
+#         no_dups.append(no_dup)
+#         residue = residue[dups]
+#         if residue.empty:
+#             break
+#     for i, df in enumerate(no_dups):
+#         oldies = df.columns.to_list()
+#         newbs = [f"{old}.{i}" for old in oldies]
+#         df.rename({old: new for old, new in zip(oldies, newbs)}, axis=1, inplace=True)
+
+#     new = no_dups[0].copy()
+#     for i, df in enumerate(no_dups):
+#         if i == 0:
+#             continue
+#         else:
+#             new = new.merge(df, left_index=True, right_index=True, how="outer")
+#     return new
+
+
+# def rescale_value(value: str or float or int, factor: float = 1):
+#     if is_number(value):
+#         if type(value) == str:
+#             values = re.sub(r"\n.*|\s", "", value)
+#             values = re.split("--|~", values)
+#             floats = [float(clean_string(val)) * factor for val in values if val != ""]
+#             rescaled = [
+#                 f"{num:.{prec(val,factor)}f}" for num, val in zip(floats, values)
+#             ]
+#             return " ~ ".join(rescaled)
+#         if type(value) == float or type(value) == int:
+#             return value * factor
+#         else:
+#             return value
+#     else:
+#         return value
+
+
+# def prec(num: str, factor: float) -> int:
+
+#     split = num.split(".")
+#     if len(split) == 2:
+#         l_num = -1 * len(split[1])
+
+#     else:
+#         l_num = len(split[0]) - 1
+#         if split[0].startswith("-"):
+#             l_num -= 1
+
+#     zeros = int(l_num + np.log10(np.abs(factor)))
+#     if zeros > 0:
+#         return 0
+#     else:
+#         return -zeros
+
+
+# def clean_string(string: str) -> str:
+#     string = string.replace(",", ".")
+#     if "-" in string:
+#         string = "-" + string.strip("-")
+#     if string.count(".") > 1:
+#         dot = string.find(".")
+#         string = string.replace(".", "")
+#         string = string[:dot] + "." + string[dot:]
+#     return string

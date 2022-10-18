@@ -1,6 +1,6 @@
+import re
 from hashlib import sha1
 from typing import List
-
 import pandas as pd
 
 
@@ -30,3 +30,12 @@ def crop_text(text: str, n_chars: int = 8):
         text = text[: n_chars - 3] + "..."
 
     return f"{text:.<{n_chars}}"
+
+
+def is_number(value: str or float) -> bool:
+    value = str(value)
+    pat = r"\A([~\s+-<]*(\d)+([\.,]\d+)?[~\s+-±]*)*\Z"
+    if re.match(pat, value) or value == "nan":
+        return True
+    else:
+        return False

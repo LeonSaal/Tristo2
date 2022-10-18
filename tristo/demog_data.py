@@ -127,10 +127,10 @@ def strip_name(name):
 #     return data_sort.str.replace(r"([.]$)|(\s*/.+$)", "", regex=True)
 
 
-def get_districts(ARS: int):
-    with OpenDB().session() as session:
-        stmt = select(GN250.name).where(GN250.ars == ARS)
-        return set([district for district in session.execute(stmt).scalars()])
+# def get_districts(ARS: int):
+#     with OpenDB().session() as session:
+#         stmt = select(GN250.name).where(GN250.ars == ARS)
+#         return set([district for district in session.execute(stmt).scalars()])
 
 
 def get_districts_from_comm(comm: str):
@@ -143,10 +143,10 @@ def get_districts_from_comm(comm: str):
         return set(districts)
 
 
-def get_comm_from_LAU(LAU: int):
-    with OpenDB().session() as session:
-        stmt = select(LAU_NUTS.name).where(LAU_NUTS.LAU == LAU)
-        return session.execute(stmt).scalar()
+# def get_comm_from_LAU(LAU: int):
+#     with OpenDB().session() as session:
+#         stmt = select(LAU_NUTS.name).where(LAU_NUTS.LAU == LAU)
+#         return session.execute(stmt).scalar()
 
 
 # def get_from_LAU(LAU: int):

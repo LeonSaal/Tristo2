@@ -32,10 +32,10 @@ from tqdm import tqdm
 from urllib3.exceptions import HTTPError, MaxRetryError
 
 from .complements import PATS, SERVICE, TIMEOUT, Status
-from .converter import clean_data
+from .converter import orient_data
 from .database import LAU_NUTS, WVG, WVG_LAU, File_Index, Response, Supplier
 from .demog_data import get_districts_from_comm
-from .paths import HOME, PATH_DATA
+from .paths import PATH_DATA
 from .utils import crop_text, hashf
 
 scrape_err = (HTTPError, ConnectionError, SSLError, ReadTimeout, MaxRetryError)
@@ -92,13 +92,13 @@ def save_tables(soup: bs, link: str, hash1: str):
         pat = re.compile(PATS["DATA"], flags=re.IGNORECASE)
         tabs = pd.read_html(str(soup).translate(trans), match=pat)
     except ParserError:
-        return {n_tables: -1}, []
+        return {"n_tables": -1}, []
     except ValueError:
-        return {n_tables: 0}, []
+        return {"n_tables": 0}, []
 
-    tabs = [clean_data(tab) for tab in tabs if clean_data(tab) is not None]
+    tabs = [orient_data(tab) for tab in tabs if orient_data(tab) is not None]
     if len(tabs) == 0:
-        return {n_tables: 0}
+        return {"n_tables": 0}
     pat_d = r"(?:\d{1,2})?\.?"
     pat_m = r"(?:[A-Z]\w|\d{1,2})?\.?"
     pat_y = r"(20(?:[01]\d|2[012]))"
@@ -145,7 +145,6 @@ def save_pdf(soup: bs, b_href: str, hash1: str):
     err = 0
     matches = soup.find_all(href=re.compile(".pdf"))
     hrefs = set(match["href"] for match in matches)
-    names = ["pdf", "err_pdf"]
     pdfs = []
     fnames = []
     for i, href in enumerate(hrefs):
@@ -289,36 +288,37 @@ def scrape_page(i: int, link: str, LAU: int, comm: str, hash1: str):
 
     else:
         page = get_page(link)
-        if page:
-            req.status = Status.OK
-
-            # scrape HTMl for downloads and save relevant info
-            html_stat, tables = save_tables(page, link, hash1)
-            img_stat, others = save_other(page, b_href, hash1)
-            pdf_stat, pdfs = save_pdf(page, b_href, hash1)
-            inst = tables + others + pdfs
-            req.__dict__.update({**html_stat, **img_stat, **pdf_stat})
-
-            if page.find(string=re.compile(PATS["ADDRESS"], flags=re.IGNORECASE)):
-                postcode = Status.YES
-            else:
-                postcode = Status.NO
-            districts = get_districts_from_comm(comm)
-            pat_dist = "|".join(districts)
-            finds = page.find_all(string=re.compile(pat_dist, flags=re.IGNORECASE))
-            dist_finds = list(
-                set(
-                    [
-                        re.search(pat_dist, find).group(0)
-                        for find in finds
-                        if re.search(pat_dist, find)
-                    ]
-                )
-            )
-            req.districts = ", ".join(dist_finds)
-            req.postcode = postcode
-        else:
+        if not page:
             req.status = Status.ERROR
+            return req, inst
+
+        req.status = Status.OK
+
+        # scrape HTMl for downloads and save relevant info
+        html_stat, tables = save_tables(page, link, hash1)
+        img_stat, others = save_other(page, b_href, hash1)
+        pdf_stat, pdfs = save_pdf(page, b_href, hash1)
+        inst = tables + others + pdfs
+        req.__dict__.update({**html_stat, **img_stat, **pdf_stat})
+
+        if page.find(string=re.compile(PATS["ADDRESS"], flags=re.IGNORECASE)):
+            postcode = Status.YES
+        else:
+            postcode = Status.NO
+        districts = get_districts_from_comm(comm)
+        pat_dist = "|".join(districts)
+        finds = page.find_all(string=re.compile(pat_dist, flags=re.IGNORECASE))
+        dist_finds = list(
+            set(
+                [
+                    re.search(pat_dist, find).group(0)
+                    for find in finds
+                    if re.search(pat_dist, find)
+                ]
+            )
+        )
+        req.districts = ", ".join(dist_finds)
+        req.postcode = postcode
     return req, inst
 
 
@@ -360,12 +360,48 @@ class google_webdriver:
         self.driver.close()
 
 
-def scrape_pages_LAU(
+#
+
+
+def check_comm(b_href, comm):
+    words = re.findall(r"\w+", comm)
+    words = [replace_umlaut(word.lower()) for word in words]
+    if re.search("|".join(words), b_href):
+        return True
+
+
+def replace_umlaut(string):
+    replace = str.maketrans(dict(zip(["ä", "ö", "ü", "ß"], ["ae", "oe", "ue", "ss"])))
+    return string.translate(replace)
+
+
+def is_supplier(b_href, comm):
+    if re.sub("(http[s]?://)?(www\.)?", "", b_href) in PATS["SUPPLIER_LIST"]:
+        return Status.CONFIRMED
+    elif re.search(PATS["BLACKLIST_URL"], b_href):
+        return Status.COMMERCIAL
+    elif re.search(PATS["BLACKLIST_PRESS"], b_href):
+        return Status.PRESS
+    elif re.search(PATS["SUPPLIER"], b_href):
+        return Status.PROBABLY
+    elif check_comm(b_href, comm):
+        return Status.COMMUNITY
+
+
+def save_HTML_tabs(tables, j, path=""):
+    with pd.ExcelWriter(os.path.join(path, f"{j}_HTML.xlsx")) as writer:
+        for i, df in enumerate(tables):
+            df.to_excel(writer, sheet_name=f"{i}")
+
+
+def scrape_pages(
     query,
     session: Session,
+    how: Literal["supplier", "LAU"],
     start=0,
     stop=None,
     n_res=1,
+    wait=10,
 ):
     """
     performs google search of "comm + query",
@@ -403,18 +439,40 @@ def scrape_pages_LAU(
         if not os.path.exists(PATH_DATA):
             os.mkdir(PATH_DATA)
         os.chdir(PATH_DATA)
-        max_id = stop if stop else session.execute(func.max(WVG_LAU.id)).scalar()
-        stmt = (
-            select(LAU_NUTS.name, WVG_LAU.LAU)
-            .outerjoin(Response)
-            .where(Response.LAU == None, WVG_LAU.id.between(start, max_id))
-            .join(WVG)
-            .join(LAU_NUTS)
-        )
-        for name, LAU in session.execute(stmt):
+
+        if how == "supplier":
+            max_id = stop if stop else session.execute(func.max(Supplier.id)).scalar()
+            stmt = (
+                select(Supplier.name, Supplier.url)
+                .outerjoin(Response)
+                .where(Response.LAU == None, Supplier.id.between(start, max_id))
+            )
+
+        elif how == "LAU":
+            max_id = stop if stop else session.execute(func.max(WVG_LAU.id)).scalar()
+            stmt = (
+                select(LAU_NUTS.name, WVG_LAU.LAU)
+                .outerjoin(Response)
+                .where(Response.LAU == None, WVG_LAU.id.between(start, max_id))
+                .join(WVG)
+                .join(LAU_NUTS)
+                .order_by(WVG.supplied.desc())
+            )
+
+        else:
+            return
+
+        for name, var in (pbar := tqdm(session.execute(stmt).all())):
+            pbar.set_postfix_str(crop_text(name, 20))
             inst = []
-            name = re.sub(r"\s?[,/].*\Z", "", name)
-            search_string = f"{name} {query}"
+
+            if how == "LAU":
+                name = re.sub(r"\s?[,/].*\Z", "", name)
+                search_string = f"{name} {query}"
+            elif how == "supplier":
+                search_string = f"site:{var} {query}"
+
+            t_0 = time.time()
             res = driver.get_links(search_string, n_res)
             for i, link in enumerate(res):
                 hash1 = hashf(link)
@@ -427,7 +485,12 @@ def scrape_pages_LAU(
                 os.mkdir(dir_page)
                 os.chdir(dir_page)
 
-                req, files = scrape_page(i, link, LAU, name, hash1)
+                if how == "LAU":
+                    args = (i, link, var, name, hash1)
+                elif how == "supplier":
+                    args = (i, link, None, "", hash1)
+                req, files = scrape_page(*args)
+
                 inst.append(req)
                 inst.extend(files)
                 os.chdir("..")
@@ -435,37 +498,100 @@ def scrape_pages_LAU(
                     os.rmdir(dir_page)
                     continue
 
-            session.add_all(inst)
-            session.commit()
+                session.add_all(inst)
+                session.commit()
             clear_output(wait=True)
+            t_1 = time.time()
+            dt = t_1 - t_0
+            if (diff := wait - dt) > 0:
+                sleep_for = diff + random.uniform(0, wait / 2)
+                time.sleep(sleep_for)
         os.chdir("..")
 
     return
 
 
-def check_comm(b_href, comm):
-    words = re.findall(r"\w+", comm)
-    words = [replace_umlaut(word.lower()) for word in words]
-    if re.search("|".join(words), b_href):
-        return True
+# def scrape_pages_LAU(
+#     query,
+#     session: Session,
+#     start=0,
+#     stop=None,
+#     n_res=1,
+# ):
+#     """
+#     performs google search of "comm + query",
+#     opens pages of n_res results for each search term and scans pages.
+#     If save==True, contents and search data are saved.
 
+#     Parameters
+#     ----------
+#     communities : pd.DataFrame
+#         list of community names.
+#     query : str, optional
+#         search query. The default is ''.
+#     n : int, optional
+#         number of consecutive searches. The default is None.
+#     start : int or str, optional
+#         start number or name of comm in communities. The default is None.
+#     stop : int or str, optional
+#         stop number or name of comm in communities. The default is None.
+#     n_res : int, optional
+#         number of results per search. The default is 1.
+#     save : bool, optional
+#         save search results. The default is True.
+#     pause : float, optional
+#         delay between searches. The default is 2.0.
+#     user_agent : str, optional
+#         user agent for identification. The default is None.
 
-def replace_umlaut(string):
-    replace = str.maketrans(dict(zip(["ä", "ö", "ü", "ß"], ["ae", "oe", "ue", "ss"])))
-    return string.translate(replace)
+#     Returns
+#     -------
+#     None.
 
+#     """
 
-def is_supplier(b_href, comm):
-    if re.sub("(http[s]?://)?(www\.)?", "", b_href) in PATS["SUPPLIER_LIST"]:
-        return Status.CONFIRMED
-    elif re.search(PATS["BLACKLIST_URL"], b_href):
-        return Status.COMMERCIAL
-    elif re.search(PATS["BLACKLIST_PRESS"], b_href):
-        return Status.PRESS
-    elif re.search(PATS["SUPPLIER"], b_href):
-        return Status.PROBABLY
-    elif check_comm(b_href, comm):
-        return Status.COMMUNITY
+#     with google_webdriver() as driver:
+#         if not os.path.exists(PATH_DATA):
+#             os.mkdir(PATH_DATA)
+#         os.chdir(PATH_DATA)
+#         max_id = stop if stop else session.execute(func.max(WVG_LAU.id)).scalar()
+#         stmt = (
+#             select(LAU_NUTS.name, WVG_LAU.LAU)
+#             .outerjoin(Response)
+#             .where(Response.LAU == None, WVG_LAU.id.between(start, max_id))
+#             .join(WVG)
+#             .join(LAU_NUTS)
+#         )
+#         for name, LAU in session.execute(stmt):
+#             inst = []
+#             name = re.sub(r"\s?[,/].*\Z", "", name)
+#             search_string = f"{name} {query}"
+#             res = driver.get_links(search_string, n_res)
+#             for i, link in enumerate(res):
+#                 hash1 = hashf(link)
+#                 dir_page = f"{hash1}"
+#                 stmt = select(Response).where(Response.hash == hash1)
+#                 if session.execute(stmt).first():
+#                     continue
+#                 if os.path.exists(dir_page):
+#                     sh.rmtree(dir_page)
+#                 os.mkdir(dir_page)
+#                 os.chdir(dir_page)
+
+#                 req, files = scrape_page(i, link, LAU, name, hash1)
+#                 inst.append(req)
+#                 inst.extend(files)
+#                 os.chdir("..")
+#                 if os.listdir(dir_page) == []:
+#                     os.rmdir(dir_page)
+#                     continue
+
+#             session.add_all(inst)
+#             session.commit()
+#             clear_output(wait=True)
+#         os.chdir("..")
+
+#     return
 
 
 # def manual_scrape(query):
@@ -546,207 +672,84 @@ def is_supplier(b_href, comm):
 #     os.chdir('..')
 
 
-def save_HTML_tabs(tables, j, path=""):
-    with pd.ExcelWriter(os.path.join(path, f"{j}_HTML.xlsx")) as writer:
-        for i, df in enumerate(tables):
-            df.to_excel(writer, sheet_name=f"{i}")
+# def scrape_pages_Supplier(query, session: Session, n_res=1, wait=10):
+#     """
+#     performs google search of "comm + query",
+#     opens pages of n_res results for each search term and scans pages.
+#     If save==True, contents and search data are saved.
 
+#     Parameters
+#     ----------
+#     communities : pd.DataFrame
+#         list of community names.
+#     query : str, optional
+#         search query. The default is ''.
+#     n : int, optional
+#         number of consecutive searches. The default is None.
+#     start : int or str, optional
+#         start number or name of comm in communities. The default is None.
+#     stop : int or str, optional
+#         stop number or name of comm in communities. The default is None.
+#     n_res : int, optional
+#         number of results per search. The default is 1.
+#     save : bool, optional
+#         save search results. The default is True.
+#     pause : float, optional
+#         delay between searches. The default is 2.0.
+#     user_agent : str, optional
+#         user agent for identification. The default is None.
 
-def scrape_pages_Supplier(query, session: Session, n_res=1, wait=10):
-    """
-    performs google search of "comm + query",
-    opens pages of n_res results for each search term and scans pages.
-    If save==True, contents and search data are saved.
+#     Returns
+#     -------
+#     None.
 
-    Parameters
-    ----------
-    communities : pd.DataFrame
-        list of community names.
-    query : str, optional
-        search query. The default is ''.
-    n : int, optional
-        number of consecutive searches. The default is None.
-    start : int or str, optional
-        start number or name of comm in communities. The default is None.
-    stop : int or str, optional
-        stop number or name of comm in communities. The default is None.
-    n_res : int, optional
-        number of results per search. The default is 1.
-    save : bool, optional
-        save search results. The default is True.
-    pause : float, optional
-        delay between searches. The default is 2.0.
-    user_agent : str, optional
-        user agent for identification. The default is None.
+#     """
 
-    Returns
-    -------
-    None.
+#     with google_webdriver() as driver:
+#         os.chdir(HOME)
+#         if not os.path.exists(PATH_DATA):
+#             os.mkdir(PATH_DATA)
+#         os.chdir(PATH_DATA)
 
-    """
+#         stmt = select(Supplier.name, Supplier.url)
+#         for i, (name, url) in enumerate(session.execute(stmt)):
+#             statement = select(Supplier).where(Supplier.url == url)
+#             if session.execute(statement).first():
+#                 continue
+#             n_suppliers = session.execute(func.count(Supplier.url != None)).scalar()
+#             print(f'{i} of {n_suppliers}: "{name}", "{url}"')
+#             search_string = f"site:{url} {query}"
+#             res = driver.get_links(search_string, n_res)
+#             t_0 = time.time()
+#             session.add(Supplier(name=name, url=url))
+#             for j, link in enumerate(res):
+#                 hash1 = hashf(link)
+#                 dir_page = f"{hash1}"
+#                 statement = select(Response).where(Response.hash == hash1)
+#                 if session.execute(statement).first():
+#                     continue
+#                 if os.path.exists(dir_page):
+#                     sh.rmtree(dir_page)
+#                 os.mkdir(dir_page)
+#                 os.chdir(dir_page)
 
-    with google_webdriver() as driver:
-        os.chdir(HOME)
-        if not os.path.exists(PATH_DATA):
-            os.mkdir(PATH_DATA)
-        os.chdir(PATH_DATA)
+#                 req, files = scrape_page(j, link, None, "", hash1)
+#                 session.add(req)
+#                 session.add_all(files)
+#                 os.chdir("..")
+#                 try:
+#                     os.rmdir(dir_page)
+#                     continue
+#                 except OSError:
+#                     pass
 
-        stmt = select(Supplier.name, Supplier.url)
-        for i, (name, url) in enumerate(session.execute(stmt)):
-            statement = select(Supplier).where(Supplier.url == url)
-            if session.execute(statement).first():
-                continue
-            n_suppliers = session.execute(func.count(Supplier.url != None)).scalar()
-            print(f'{i} of {n_suppliers}: "{name}", "{url}"')
-            search_string = f"site:{url} {query}"
-            res = driver.get_links(search_string, n_res)
-            t_0 = time.time()
-            session.add(Supplier(name=name, url=url))
-            for j, link in enumerate(res):
-                hash1 = hashf(link)
-                dir_page = f"{hash1}"
-                statement = select(Response).where(Response.hash == hash1)
-                if session.execute(statement).first():
-                    continue
-                if os.path.exists(dir_page):
-                    sh.rmtree(dir_page)
-                os.mkdir(dir_page)
-                os.chdir(dir_page)
+#             session.commit()
+#             clear_output(wait=True)
+#             t_1 = time.time()
+#             dt = t_1 - t_0
+#             if (diff := wait - dt) > 0:
+#                 sleep_for = diff + random.uniform(0, wait / 2)
+#                 time.sleep(sleep_for)
+#         os.chdir("..")
 
-                req, files = scrape_page(j, link, None, "", hash1)
-                session.add(req)
-                session.add_all(files)
-                os.chdir("..")
-                try:
-                    os.rmdir(dir_page)
-                    continue
-                except OSError:
-                    pass
-
-            session.commit()
-            clear_output(wait=True)
-            t_1 = time.time()
-            dt = t_1 - t_0
-            if (diff := wait - dt) > 0:
-                sleep_for = diff + random.uniform(0, wait / 2)
-                time.sleep(sleep_for)
-        os.chdir("..")
-
-    return
-
-
-def scrape_pages(
-    query,
-    session: Session,
-    how: Literal["supplier", "LAU"],
-    start=0,
-    stop=None,
-    n_res=1,
-    wait=10,
-):
-    """
-    performs google search of "comm + query",
-    opens pages of n_res results for each search term and scans pages.
-    If save==True, contents and search data are saved.
-
-    Parameters
-    ----------
-    communities : pd.DataFrame
-        list of community names.
-    query : str, optional
-        search query. The default is ''.
-    n : int, optional
-        number of consecutive searches. The default is None.
-    start : int or str, optional
-        start number or name of comm in communities. The default is None.
-    stop : int or str, optional
-        stop number or name of comm in communities. The default is None.
-    n_res : int, optional
-        number of results per search. The default is 1.
-    save : bool, optional
-        save search results. The default is True.
-    pause : float, optional
-        delay between searches. The default is 2.0.
-    user_agent : str, optional
-        user agent for identification. The default is None.
-
-    Returns
-    -------
-    None.
-
-    """
-
-    with google_webdriver() as driver:
-        if not os.path.exists(PATH_DATA):
-            os.mkdir(PATH_DATA)
-        os.chdir(PATH_DATA)
-
-        if how == "supplier":
-            max_id = stop if stop else session.execute(func.max(Supplier.id)).scalar()
-            stmt = (
-                select(Supplier.name, Supplier.url)
-                .outerjoin(Response)
-                .where(Response.LAU == None, Supplier.id.between(start, max_id))
-            )
-
-        elif how == "LAU":
-            max_id = stop if stop else session.execute(func.max(WVG_LAU.id)).scalar()
-            stmt = (
-                select(LAU_NUTS.name, WVG_LAU.LAU)
-                .outerjoin(Response)
-                .where(Response.LAU == None, WVG_LAU.id.between(start, max_id))
-                .join(WVG)
-                .join(LAU_NUTS)
-                .order_by(WVG.supplied.desc())
-            )
-
-        else:
-            return
-
-        for name, var in (pbar := tqdm(session.execute(stmt).all())):
-            pbar.set_description(crop_text(name, 20))
-            inst = []
-
-            if how == "LAU":
-                name = re.sub(r"\s?[,/].*\Z", "", name)
-                search_string = f"{name} {query}"
-            elif how == "supplier":
-                search_string = f"site:{var} {query}"
-
-            t_0 = time.time()
-            res = driver.get_links(search_string, n_res)
-            for i, link in enumerate(res):
-                hash1 = hashf(link)
-                dir_page = f"{hash1}"
-                stmt = select(Response).where(Response.hash == hash1)
-                if session.execute(stmt).first():
-                    continue
-                if os.path.exists(dir_page):
-                    sh.rmtree(dir_page)
-                os.mkdir(dir_page)
-                os.chdir(dir_page)
-
-                if how == "LAU":
-                    args = (i, link, var, name, hash1)
-                elif how == "supplier":
-                    args = (i, link, None, "", hash1)
-                req, files = scrape_page(*args)
-
-                inst.append(req)
-                inst.extend(files)
-                os.chdir("..")
-                if os.listdir(dir_page) == []:
-                    os.rmdir(dir_page)
-                    continue
-
-                session.add_all(inst)
-                session.commit()
-            clear_output(wait=True)
-            t_1 = time.time()
-            dt = t_1 - t_0
-            if (diff := wait - dt) > 0:
-                sleep_for = diff + random.uniform(0, wait / 2)
-                time.sleep(sleep_for)
-        os.chdir("..")
-
-    return
+#     return

@@ -29,6 +29,7 @@ def make_file_index(session: Session):
 
             to_add.append(File_Index(fname=name, ext=ext, hash=hash1, hash2=hash2))
     session.add_all(to_add)
+    session.commit()
 
 
 def get_regex(category: str, session: Session) -> List[str]:
@@ -39,7 +40,7 @@ def get_regex(category: str, session: Session) -> List[str]:
 def get_params(session: Session, get_regex=False) -> List[str]:
     stmt = select(Param.param, Param.regex).where(Param.param != None)
     return [
-        regex if (regex and get_regex) else re.escape(param)
+        re.sub("\((?!\?)", "(?:", regex) if (regex and get_regex) else re.escape(param)
         for param, regex in session.execute(stmt).all()
     ]
 
@@ -58,5 +59,5 @@ def get_supplier_urls(session: Session):
 
 
 def get_keyword_label(session: Session):
-    stmt = select(Regex.category.distinct())
+    stmt = select(Regex.category.distinct()).where(Regex.id > 0)
     return session.execute(stmt).scalars().all()

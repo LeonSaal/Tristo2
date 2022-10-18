@@ -37,6 +37,7 @@ setuptools.setup(
         "scipy",
         "opencv-python",
         "wget",
+        "thefuzz",
     ],
     python_requires=">=3.10.4",
 )

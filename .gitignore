@@ -11,9 +11,10 @@
 *.csv
 *.pyc
 *.zip
-/converted*
-/raw_data*
+converted*
+raw_data*
 /build
 tristo/__pycache__/*
-/.vscode
+.vscode
 *.hmtl
+supplementary*

@@ -12,16 +12,16 @@ import camelot as cm
 import fitz
 import ocrmypdf
 import pandas as pd
+import tabula
 from IPython.display import clear_output
 from ocrmypdf import ocr
 from openpyxl.utils.exceptions import IllegalCharacterError
 from PIL.Image import DecompressionBombError
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-from tabula import read_pdf
 from tqdm import tqdm
 
-from .cleaner import clean_data
+from .cleaner import orient_data
 from .complements import PATS, Status
 from .database import File_Cleaned, File_Index, File_Info, OpenDB
 from .index_utils import get_index_from_path, path_from_index
@@ -82,7 +82,7 @@ def extract_pdf(file, hash2, save=True, overwrite=False):
 
     except Exception:
         try:
-            tables = read_pdf(file, pages="all")
+            tables = tabula.read_pdf(file, pages="all")
             tables = [
                 table.dropna(how="all").dropna(axis=1, how="all")
                 for table in tables
@@ -109,7 +109,7 @@ def extract_pdf(file, hash2, save=True, overwrite=False):
 
     for table in tables:
         try:
-            new = clean_data(table)
+            new = orient_data(table)
             news += [new]
         except Exception:
             err += 1
@@ -137,7 +137,7 @@ def extract_excel(file, hash2):
     n_tab = len(tables)
     for table in tables:
         try:
-            new = clean_data(table)
+            new = orient_data(table)
             news += [new]
         except ValueError:
             err += 1

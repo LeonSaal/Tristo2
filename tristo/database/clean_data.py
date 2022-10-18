@@ -1,14 +1,19 @@
+import logging
 import re
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pint import DimensionalityError, UndefinedUnitError, UnitRegistry
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
+from thefuzz import fuzz
 from tqdm import tqdm
 
+from ..config import LOG_FMT
 from .tables import Data, Param, Regex, Unit
+
+logging.basicConfig(level=logging.INFO, format=LOG_FMT, style="{")
+logger = logging.getLogger(__name__)
 
 ureg = UnitRegistry()
 
@@ -52,11 +57,11 @@ def mark_params(session: Session):
     raw_params = session.execute(raw_params_query).scalars().all()
 
     duplicated = []
-    print("Marking parameters:")
+    logger.info("Marking parameters:")
     pbar = tqdm(raw_params)
-
+    marked = 0
     for raw_param in pbar:
-        pbar.set_description(crop_text(raw_param, 20))
+        pbar.set_postfix_str(crop_text(raw_param, 20))
         cleaned_param = clean_param(raw_param)
         pattern_query = select(Param.id, Param.param, Param.regex).where(
             Param.param != None, Param.param != "None"
@@ -70,13 +75,15 @@ def mark_params(session: Session):
         if len(ids) == 1:
             id = min([m[0] for m in matches])
             to_update = update(Data).where(Data.param == raw_param).values(param_id=id)
+            marked += 1
             session.execute(to_update)
         elif len(ids) == 0:
             continue
         else:
             duplicated.extend([(raw_param, *match) for match in matches])
+        session.commit()
 
-    duplicate_unmatched = [m[0] for m in duplicated]
+    duplicate_unmatched = set(m[0] for m in duplicated)
     unmatched_query = select(Data.param.distinct()).where(
         Data.omitted_id == None,
         Data.param_id == None,
@@ -85,6 +92,7 @@ def mark_params(session: Session):
     )
     unmatched = session.execute(unmatched_query).scalars().all()
 
+    fname = "params.xlsx"
     with pd.ExcelWriter("params.xlsx") as writer:
         pd.DataFrame(
             duplicated, columns=["raw_param", "id", "param", "regex"]
@@ -93,6 +101,19 @@ def mark_params(session: Session):
             writer, sheet_name="errors"
         )
         pd.DataFrame(unmatched).to_excel(writer, sheet_name="unmatched")
+
+    n_duplicates = len(duplicate_unmatched)
+    n_unmatched = len(unmatched)
+    n_params = len(raw_params)
+
+    logger.info(
+        f"Marked a total of {marked} from {len(raw_params)} entries as parameters ({marked/n_params:.0%})."
+    )
+    logger.info(
+        f"{n_duplicates} entries resulted in multiple matches ({n_duplicates/n_params:.0%})."
+    )
+    logger.info(f"{n_unmatched} entries remain unmatched ({n_unmatched/n_params:.0%}).")
+    logger.info(f"Results are stored in {fname!r}")
 
 
 def clean_param(param: str):
@@ -118,17 +139,22 @@ def mark_blacklist(session: Session):
         if regex != "None"
     ]
 
-    print("Marking blacklist:")
-
+    logger.info("Marking blacklist:")
+    marked = 0
     for param in (pbar := tqdm(params, mininterval=0.5)):
-        pbar.set_description(crop_text(param, 20))
+        pbar.set_postfix_str(crop_text(param, 20))
 
         for id, reob in compiled_patterns:
             if not reob.search(param):
                 continue
             omitted_id = update(Data).where(Data.param == param).values(omitted_id=id)
             session.execute(omitted_id)
+            marked += 1
             break
+        session.commit()
+    logger.info(
+        f"Marked a total of {marked} from {len(params)} entries as blacklist ({marked/len(params):.0%})."
+    )
 
 
 def mark_data(session: Session, overwrite=False):
@@ -177,9 +203,9 @@ def get_vals(param, session: Session, unit: str = None, limit_thresh=1.2):
                     continue
                 out.append(converted_val)
             except DimensionalityError:
-                print(f"unable to convert from {from_unit} to {to_unit}")
+                logger.error(f"unable to convert from {from_unit} to {to_unit}")
             except UndefinedUnitError:
-                print(from_unit, to_unit, raw_unit)
+                logger.error(from_unit, to_unit, raw_unit)
 
     out = np.array(out)
     bg_mask = out < 0
@@ -202,35 +228,6 @@ def clean_val(val: str):
         return float(val.replace(",", ".").replace("<", "-"))
 
 
-def boxplot_param(vals, bg, outliers, param_name, unit, limit):
-    plt.boxplot(vals)
-    plt.boxplot(bg, positions=[2])
-    if limit:
-        plt.ylim(0, 1.2 * limit)
-    else:
-        if unit == "µg/l":
-            plt.ylim(0, 5)
-    xlims = plt.xlim()
-    plt.hlines([limit], *xlims, colors=["red"], lw=1)
-    plt.xticks([1, 2], labels=[f"> BG,  N = {len(vals)}", f"< BG: N={len(bg)}"])
-    plt.ylabel(f"{unit}")
-    plt.title(param_name)
-    plt.show()
-    total_len = len(vals) + len(bg) + len(outliers)
-    if total_len == 0:
-        total_len = 1
-    print(
-        "; ".join(
-            [
-                f"{name}: N={len(x)} ({len(x)/total_len:.2%})"
-                for name, x in zip(
-                    ["> BG", "< BG", "not validated"], [vals, bg, outliers]
-                )
-            ]
-        )
-    )
-
-
 def rem_dup_param(session: Session):
     stmt = (
         select(Param.param, Param.regex, func.count(Param.param))
@@ -245,3 +242,49 @@ def rem_dup_param(session: Session):
         for id in session.execute(stmt).scalars():
             to_del = delete(Param).where(Param.id != id)
             session.execute(to_del)
+
+
+def mark_limit_col(session: Session, thresh=0.75):
+    stmt = (
+        select(Data.hash2, Data.tab, Data.col)
+        .where(Data.omitted_id == None)
+        .group_by(Data.hash2, Data.tab, Data.col)
+    )
+    logger.info("Marking Limit Columns")
+    table_query = select(Data.hash2, Data.tab).group_by(Data.hash2, Data.tab)
+    n_tabs = len(session.execute(table_query).all())
+    n_limit_cols = 0
+    for hash2, tab, col in (pbar := tqdm(session.execute(stmt).all(), mininterval=0.1)):
+        pbar.set_postfix_str(f"{hash2}: table {tab}, column {col}")
+        col_data = (
+            select(Data.val, Param.limit)
+            .where(
+                Data.hash2 == hash2,
+                Data.tab == tab,
+                Data.col == col,
+                Data.param_id != None,
+                Data.val != None,
+                Data.val != "-",
+            )
+            .join(Param)
+        )
+        vals = session.execute(col_data).all()
+        score_sum = sum(
+            fuzz.partial_ratio(
+                val.replace(",", "."), limit.replace(",", ".") if limit else limit
+            )
+            for val, limit in vals
+        )
+        rel_score = score_sum / len(vals) / 100
+        if rel_score > thresh:
+            to_update = (
+                update(Data)
+                .where(Data.hash2 == hash2, Data.tab == tab, Data.col == col)
+                .values(omitted_id=-1)
+            )
+            session.execute(to_update)
+            n_limit_cols += 1
+    session.commit()
+    logger.info(
+        f"Marked a total of {n_limit_cols} limit columns in {n_tabs} tables ({n_limit_cols/n_tabs:.0%}). "
+    )

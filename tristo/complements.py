@@ -8,12 +8,12 @@ Created on Wed Jan  5 10:18:42 2022
 
 import calendar
 import locale
-import logging
+
 from dataclasses import dataclass
 
 from .config import LOG_FMT
 from .paths import PATH_SUPP
-
+import logging
 logging.basicConfig(level=logging.INFO, format=LOG_FMT, style="{")
 logger = logging.getLogger(__name__)
 locale.setlocale(locale.LC_ALL, "deu_deu")
@@ -26,11 +26,12 @@ from .paths import PATH_SUPP
 
 SERVICE_FILE = "chromedriver.exe"
 PATH_SERVICE = PATH_SUPP / SERVICE_FILE
-if PATH_SERVICE.exists():
-    SERVICE = Service(PATH_SERVICE)
-else:
-    DRIVER_URL = 'https://chromedriver.chromium.org/downloads'
-    logger.warn(f'Please supply {SERVICE_FILE!r} in {PATH_SUPP.as_posix()!r} before scraping! Current versions can be found at {DRIVER_URL!r}')
+if not PATH_SERVICE.exists():
+    DRIVER_URL = "https://chromedriver.chromium.org/downloads"
+    logger.warn(
+        f"Please supply {SERVICE_FILE!r} in {PATH_SUPP.as_posix()!r} before scraping!\n\t-> Current versions can be found at {DRIVER_URL!r}."
+    )
+SERVICE = Service(PATH_SERVICE)
 TIMEOUT = 5
 MONTHS = {name: str(i) for i, name in enumerate(calendar.month_name)}
 

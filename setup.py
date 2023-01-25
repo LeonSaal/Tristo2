@@ -37,7 +37,10 @@ setuptools.setup(
         "scipy",
         "opencv-python",
         "wget",
-        "thefuzz",
+        "thefuzz[speedup]",
+        'adjustText',
+        'ghostscript',
+        'xlrd'
     ],
     python_requires=">=3.10.4",
 )

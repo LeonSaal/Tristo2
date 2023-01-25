@@ -5,58 +5,83 @@ Created on Thu Feb 10 10:55:46 2022
 @author: Leon
 """
 
-import re
-from typing import Mapping, Tuple
+from typing import Dict, Mapping, Tuple
 
 import numpy as np
 import pandas as pd
 from IPython.display import clear_output
 from pint import UnitRegistry
-from sqlalchemy import select, update
+from sqlalchemy import String, cast, delete, select, update
 from sqlalchemy.orm import Session
+from tqdm import tqdm
 
-from .complements import PATS, UNITS, Status
+from .complements import PATS, UNITS
 from .database import Data, File_Cleaned, File_Index, File_Info, TableData
 from .index_utils import get_col, get_orientation, make_index_col
 from .paths import PATH_CONV
+from .status import Status
 from .utils import count_occ, is_number
 
 ureg = UnitRegistry()
+import logging
+
+from .config import LOG_FMT
+
+logging.basicConfig(level=logging.INFO, format=LOG_FMT, style="{")
+logger = logging.getLogger(__name__)
+
+def encode_scanned(tables:Dict[str, pd.DataFrame]):
+    for num in tables.keys():
+        tables[num] = tables[num].applymap(lambda x: str(x).encode())
+    return tables
 
 
-def tables_to_db(session: Session, **kwargs) -> None:
+def tables_to_db(session: Session, overwrite=False, **kwargs) -> None:
+    if overwrite:
+        del_data = delete(Data).where(True)
+        del_tabdata = delete(TableData).where(True)
+        reset_status = update(File_Cleaned).values(status=None)
+        session.execute(del_data)
+        session.execute(del_tabdata)
+        session.execute(reset_status)
+        session.commit()
+
     statement = (
-        select(File_Index.hash2)
+        select(File_Index.hash2, File_Info.status)
         .outerjoin(File_Info)
         .outerjoin(File_Cleaned)
         .where(
             File_Cleaned.converter != Status.ERROR,
             File_Cleaned.status == None,
-            File_Info.status != Status.SCAN,
         )
     )
-    for i, hash2 in enumerate(result := session.execute(statement).scalars().all()):
+
+    for hash2, status in (
+        pbar := tqdm(session.execute(statement).all(), desc="[ INFO  ]")
+    ):
         stat = {}
         path_extr = PATH_CONV / f"{hash2}.xlsx"
-        print(f'{i+1} of {len(result)}: "{path_extr}"')
+        pbar.set_postfix_str(hash2)
         tables = pd.read_excel(path_extr, header=0, index_col=0, sheet_name=None)
+        if status == Status.SCAN:
+            tables = encode_scanned(tables)
         stat["tabs_total"] = len(tables)
-        find_tables(tables, **kwargs)
-        tables, stats = clean_tables(tables, session=session)
+        tables = find_tables(tables, **kwargs)
+        tables, stats = clean_tables(tables)
         stat["tabs_dropped"] = stat["tabs_total"] - len(tables)
         stat.update(stats)
 
         data = []
         for num, table in tables.items():
-            for col, series in table.iteritems():
-                for ind, vals in series.iteritems():
+            for col, series in table.items():
+                for (param, unit), vals in series.dropna().items():
                     data.append(
                         Data(
                             hash2=hash2,
                             tab=num,
                             col=col,
-                            param=ind[0],
-                            unit=ind[1],
+                            param=param,
+                            unit=unit,
                             val=vals,
                         )
                     )
@@ -73,8 +98,10 @@ def tables_to_db(session: Session, **kwargs) -> None:
         )
         session.execute(stmt)
         session.add_all(data)
-        clear_output(wait=True)
         session.commit()
+    cast_vals = update(Data).values(param=cast(Data.param, String), unit = cast(Data.unit, String), val = cast(Data.val, String))
+    session.execute(cast_vals)
+    session.commit()
 
 
 def orient_data(df):
@@ -85,35 +112,22 @@ def orient_data(df):
     _, axis = get_orientation(new, PATS["PARAMS"])
     if axis == 1:
         new = new.T
-    # data_cols = new.columns.difference(index)
-    # new[data_cols] = new[data_cols].replace(
-    #     regex=[",", "-|–", r"<\s*"], value=[".", "--", "-"]
-    # )
     return new
 
 
-def clean_tables(
-    tables: dict, session: Session, thresh: float = 0.1, **kwargs
-) -> Tuple[dict, dict]:
+def clean_tables(tables: dict) -> Tuple[dict, dict]:
     stats = {}
     out = {}
 
     for num, table in tables.items():
         stats[num] = {}
-        # table = split_lengthwise(table)
         make_unit_col(table)
         make_index_col(table, thresh=0.2)
-
         if "param" in table and "unit" in table:
             table.set_index(["param", "unit"], inplace=True)
-        elif "param" in table:
-            table.set_index(["param"], inplace=True)
         else:
             continue
-        # convert_units(table, thresh=0.1)
         stats[num]["method"] = drop_col(table, PATS["METHOD"], thresh=0.1)
-        # if "unit" in table.index.names:
-        #     stats[num]["legal_lim"] = drop_limit_col(table, session=session)
         drop_string_cols(table)
 
         table.dropna(axis=1, how="all")
@@ -193,7 +207,8 @@ def find_tables(tables: Mapping) -> None:
         string = table.apply(lambda x: x.astype(str).str.contains(PATS["PARAMS"]))
         if not np.any(string):
             to_del.append(key)
-    [tables.pop(key) for key in to_del]
+    (tables.pop(key) for key in to_del)
+    return tables
 
 
 # def expand_duplicate_index(df):

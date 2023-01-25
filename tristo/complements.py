@@ -4,16 +4,13 @@ Created on Wed Jan  5 10:18:42 2022
 
 @author: Leon
 """
-
-
 import calendar
 import locale
-
-from dataclasses import dataclass
+import logging
 
 from .config import LOG_FMT
 from .paths import PATH_SUPP
-import logging
+
 logging.basicConfig(level=logging.INFO, format=LOG_FMT, style="{")
 logger = logging.getLogger(__name__)
 locale.setlocale(locale.LC_ALL, "deu_deu")
@@ -42,41 +39,7 @@ with OpenDB().session() as session:
     KEYWORDS["PARAMS"] = get_params(session=session, get_regex=True)
     KEYWORDS["RAW_PARAMS"] = get_params(session=session)
     KEYWORDS["SUPPLIER_LIST"] = get_supplier_urls(session=session)
+    KEYWORDS['UNIT']= [regex.pattern for regex in UNITS.keys()]
 PATS = {key: "|".join(keywords) for key, keywords in KEYWORDS.items()}
 
 
-@dataclass
-class Status:
-    OK: str = "OK"
-    ERROR: str = "ERROR"
-    OMITTED: str = "OMITTED"
-    DOWNLOAD: str = "DOWNLOAD"
-
-    YES: str = "YES"
-    NO: str = "NO"
-    CONFIRMED: str = "CONFIRMED"
-
-    IMG: str = "IMG"
-    SCAN: str = "SCAN"
-    N_PAGES: str = "N_PAGES"
-    DECOMP: str = "DECOMP_ERROR"
-    DENSITY: str = "DENSITY"
-
-    COMMERCIAL: str = "COMMERCIAL"
-    PRESS: str = "PRESS"
-    COMMUNITY: str = "COMMUNITY"
-    PROBABLY: str = "PROBABLY"
-
-    CONTENT: str = "CONTENT"
-    CREATION_DATE: str = "CREATION_DATE"
-    ENCRYPTED: str = "ENCRYPTED"
-    FORM: str = "FORM"
-    FNAME: str = "FNAME"
-    NONE: str = "NONE"
-
-    CAMELOT: str = "camelot"
-    TABULA: str = "tabula"
-    INSERTED: str = "INSERTED"
-
-    MEDIAN: str = "MEDIAN"
-    AV: str = "AVERAGE"

@@ -17,6 +17,7 @@ import wget
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
+from ..utils import download_file
 from ..config import LOG_FMT
 from ..paths import HOME, PATH_SUPP
 from .tables import (
@@ -38,15 +39,7 @@ logger = logging.getLogger(__name__)
 import sys
 
 
-def bar_progress(
-    current, total, width=80
-):  # https://stackoverflow.com/questions/58125279/python-wget-module-doesnt-show-progress-bar
-    progress_message = (
-        f"Downloading: {current/total:3.0%} [{current/1e6:5.1f} / {total/1e6:5.1f}] MB"
-    )
-    # Don't use print() as it will print in new line every time.
-    sys.stdout.write("\r" + progress_message)
-    sys.stdout.flush()
+
 
 
 def add_external_data(session: Session):
@@ -61,8 +54,7 @@ def add_external_data(session: Session):
 
 def load_lau_nuts():
     url = "https://ec.europa.eu/eurostat/documents/345175/501971/EU-27-LAU-2021-NUTS-2021.xlsx"
-    logger.info(f"Loading LAU-NUTS-Data from {url!r}")
-    file_name = wget.download(url, bar=bar_progress)
+    file_name = download_file(url, 'LAU-NUTS-Data')
     data = pd.read_excel(
         file_name,
         sheet_name="DE",
@@ -71,7 +63,7 @@ def load_lau_nuts():
     )
     lau_nuts = []
     logger.info(f"Loading {file_name!r}")
-    for row in tqdm(data.itertuples(), total=data.index.size):
+    for row in tqdm(data.itertuples(), total=data.index.size,desc='[ INFO  ]'):
         vals = {
             key: item for key, item in zip(row._fields, row) if key not in ["Index"]
         }
@@ -82,8 +74,7 @@ def load_lau_nuts():
 
 def load_gv3q():
     url = "https://www.destatis.de/DE/Themen/Laender-Regionen/Regionales/Gemeindeverzeichnis/Administrativ/Archiv/GVAuszugQ/AuszugGV3QAktuell.xlsx;jsessionid=8E1964DA2DDF5CEA87120D366C7D08EB.live722?__blob=publicationFile"
-    logger.info(f"Loading Community-Data from {url!r}")
-    file_name = wget.download(url, bar=bar_progress)
+    file_name = download_file(url,'Community-Data')
     data = pd.read_excel(
         file_name,
         sheet_name="Onlineprodukt_Gemeinden",
@@ -96,7 +87,7 @@ def load_gv3q():
     data = data[data.Land != ""]
     gv3qs = []
     logger.info(f"Loading {file_name!r}")
-    for row in tqdm(data.itertuples(), total=data.index.size):
+    for row in tqdm(data.itertuples(), total=data.index.size,desc='[ INFO  ]'):
         ars = f"{row.Land}{row.RB}{row.Kreis}{row.VB}{row.Gem}"
         gv3qs.append(GV3Q(ars=ars, name=row.name))
 
@@ -114,7 +105,7 @@ def load_wvg():
     wvgs = []
     wvg_laus = []
     logger.info(f"Loading {file!r}")
-    for row in tqdm(data.itertuples(), total=data.index.size):
+    for row in tqdm(data.itertuples(), total=data.index.size,desc='[ INFO  ]'):
         vals = {
             key: item
             for key, item in zip(row._fields, row)
@@ -130,8 +121,7 @@ def load_wvg():
 
 def load_gn250():
     url = "https://daten.gdz.bkg.bund.de/produkte/sonstige/gn250/aktuell/gn250.gk3.csv.zip"
-    logger.info(f"Loading GN250-Data from {url!r}")
-    file_name = wget.download(url, bar=bar_progress)
+    file_name = download_file(url, 'GN250-Data')
 
     with zipfile.ZipFile(file_name) as arch:
         file = arch.read("gn250.gk3.csv/gn250/GN250.csv")
@@ -146,7 +136,7 @@ def load_gn250():
     )
     gn250s = []
     logger.info(f"Loading {file_name!r}")
-    for row in tqdm(data.itertuples(), total=data.index.size):
+    for row in tqdm(data.itertuples(), total=data.index.size,desc='[ INFO  ]'):
         vals = {
             key: item for key, item in zip(row._fields, row) if key not in ["Index"]
         }
@@ -163,7 +153,7 @@ def load_supplier():
     data = pd.read_excel(file)
     suppliers = []
     logger.info(f"Loading {file!r}")
-    for row in tqdm(data.itertuples(), total=data.index.size):
+    for row in tqdm(data.itertuples(), total=data.index.size,desc='[ INFO  ]'):
         vals = {
             key: item for key, item in zip(row._fields, row) if key not in ["Index"]
         }
@@ -184,7 +174,7 @@ def load_table_from_file(table_model):
     data = pd.read_excel(file, **kwargs)
     inst = []
     logger.info(f"Loading {file!r}")
-    for row in tqdm(data.itertuples(), total=data.index.size):
+    for row in tqdm(data.itertuples(), total=data.index.size,desc='[ INFO  ]'):
         vals = {
             key: item for key, item in zip(row._fields, row) if key not in ["Index"]
         }
@@ -213,7 +203,7 @@ def add_params(session: Session):
 
     data = pd.concat(limits)
     params = []
-    for row in tqdm(data.itertuples(), total=data.index.size):
+    for row in tqdm(data.itertuples(), total=data.index.size,desc='[ INFO  ]'):
         vals = {
             key: item
             for key, item in zip(row._fields, row)
@@ -316,8 +306,7 @@ def load_uqn():
 
 def load_gow():
     url = "https://www.umweltbundesamt.de/sites/default/files/medien/5620/dokumente/listegowstoffeohnepsm-20200728-homepage_kopie_0.pdf"
-    logger.info(f"Loading GOW-Data from {url!r}")
-    file_name = wget.download(url, bar=bar_progress)
+    file_name = download_file(url,'GOW-Data')
     data = cm.read_pdf(file_name, pages="all")
     table = pd.concat([table.df for table in data])
     new = pd.DataFrame()
@@ -335,9 +324,7 @@ def load_gow():
 
 def load_psm():
     url = "https://www.bvl.bund.de/SharedDocs/Downloads/04_Pflanzenschutzmittel/psm_wirkstoffe_in_kulturen.zip?__blob=publicationFile&v=17"
-    logger.info(f"Loading PSM-Data from {url!r}")
-    file_name = wget.download(url, bar=bar_progress)
-
+    file_name = download_file(url, 'PSM-Data')
     with zipfile.ZipFile(file_name) as arch:
         file = arch.read("WstKulturHistorie-2022-07.xlsx")
 

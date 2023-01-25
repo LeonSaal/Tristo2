@@ -150,6 +150,9 @@ class Data(Base):
     omitted_id = Column(Integer, ForeignKey(Regex.id))
     unit = Column(String)
     val = Column(String)
+    val_num = Column(Float)
+    category = Column(String)
+    unit_factor = Column(Float)
 
 class Mapping(Base):
     __tablename__ = "mapping"
@@ -165,4 +168,5 @@ class Unit(Base):
     id = Column(Integer, primary_key=True)
     unit = Column(String)
     regex = Column(String)
+    kind = Column(String)
     

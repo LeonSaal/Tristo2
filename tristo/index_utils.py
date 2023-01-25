@@ -13,10 +13,10 @@ import pandas as pd
 from .complements import PATS
 
 
-def get_col(df, pat: str, thresh=0.5):
-    mask = df.apply(lambda x: x.astype("string").str.contains(pat)).sum()
+def get_col(df, pat: str, thresh=0.3):
+    mask = df.apply(lambda x: x.astype(str).str.contains(pat, flags=re.I)).sum()
     if type(thresh) == float:
-        rel_mask = mask / df.count()
+        rel_mask = (mask**2 /(df.count() * mask.max()))
         return rel_mask[rel_mask >= thresh].index
     elif type(thresh) == int:
         return mask[mask >= thresh].index

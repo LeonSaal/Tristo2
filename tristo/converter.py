@@ -22,7 +22,8 @@ from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from .cleaner import orient_data
-from .complements import PATS, Status
+from .complements import PATS
+from .status import Status
 from .database import File_Cleaned, File_Index, File_Info, OpenDB
 from .index_utils import get_index_from_path, path_from_index
 from .paths import HOME, PATH_CONV, PATH_DATA

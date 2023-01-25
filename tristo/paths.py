@@ -13,8 +13,9 @@ PATH = Path(os.path.dirname(__file__))
 PATH_SUPP = HOME / "supplementary"
 PATH_DATA = HOME / "raw_data"
 PATH_CONV = HOME / "converted"
+PATH_PLOTS = HOME / 'plots'
 
-for P in [PATH_SUPP, PATH_DATA, PATH_CONV]:
+for P in [PATH_SUPP, PATH_DATA, PATH_CONV, PATH_PLOTS]:
     if not P.exists():
         P.mkdir()
         if P == PATH_SUPP:

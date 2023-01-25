@@ -31,7 +31,8 @@ from sqlalchemy.orm import Session
 from tqdm import tqdm
 from urllib3.exceptions import HTTPError, MaxRetryError
 
-from .complements import PATS, SERVICE, TIMEOUT, Status
+from .complements import PATS, SERVICE, TIMEOUT
+from .status import Status
 from .converter import orient_data
 from .database import LAU_NUTS, WVG, WVG_LAU, File_Index, Response, Supplier
 from .demog_data import get_districts_from_comm
@@ -462,7 +463,7 @@ def scrape_pages(
         else:
             return
 
-        for name, var in (pbar := tqdm(session.execute(stmt).all())):
+        for name, var in (pbar := tqdm(session.execute(stmt).all(), desc="[ INFO  ]")):
             pbar.set_postfix_str(crop_text(name, 20))
             inst = []
 

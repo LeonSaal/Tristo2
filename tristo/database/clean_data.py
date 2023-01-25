@@ -2,17 +2,15 @@ import datetime as dt
 import logging
 import re
 
-import numpy as np
 import pandas as pd
 from pint import UnitRegistry
-from sqlalchemy import Float, String, cast, delete, func, select, update
+from sqlalchemy import Float, and_, cast, delete, func, select, update
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from ..config import LOG_FMT
 from ..utils import crop_text, make_regex
-from .convert import convert_val
-from .tables import Data, Param, Regex, TableData, Unit
+from .tables import Data, Param, Regex, Unit
 
 ureg = UnitRegistry()
 
@@ -29,7 +27,7 @@ ureg.define("mval=0.5*mmol")
 ureg.define("degreedH=0.1783*mmol/l")
 ureg.define("degreefH=0.56*degreedH")
 ureg.define("O2=1")
-ureg.define('c_eq=mol/l')
+ureg.define("c_eq=mol/l")
 
 logging.basicConfig(level=logging.INFO, format=LOG_FMT, style="{")
 logger = logging.getLogger(__name__)
@@ -266,7 +264,7 @@ def get_unit_factor(session: Session):
         pbar := tqdm(session.execute(params).all(), desc="[ INFO  ]")
     ):
         for regex, unit in unit_regex[kind].items():
-            
+
             if unit == to_unit:
                 factor = 1
             else:
@@ -277,6 +275,7 @@ def get_unit_factor(session: Session):
                 update(Data)
                 .where(
                     Data.param_id == id,
+                    Data.val_num != None,
                     func.lower(Data.unit).regexp_match(f".*{regex}"),
                 )
                 .values(unit_factor=factor)
@@ -293,12 +292,18 @@ def mark_limit_cols(session: Session):
         .distinct()
         .join(Param)
         .where(
-            Param.limit != None,
-            cast(Param.limit, Float) != 0,
-            Data.val_num != None,
-            Data.unit_factor != None,
-            func.abs(Data.val_num * Data.unit_factor - cast(Param.limit, Float))
-            <= 1e-6,
+            and_(
+                Param.limit != None,
+                cast(Param.limit, Float) != 0,
+                Data.val_num != None,
+                Data.unit_factor != None,
+                (
+                    func.abs(Data.val_num * Data.unit_factor - cast(Param.limit, Float))
+                    <= 1e-6
+                )
+            )
+            | and_(Param.id == 48, Data.val.like("6_5%-%9_5"))
+            | (Data.val.like("%grenz%"))
         )
     )
 
@@ -327,15 +332,15 @@ def mark_number_cols(session: Session):
         pbar := tqdm(session.execute(cols_query).all(), desc="[ INFO  ]")
     ):
         pbar.set_postfix_str(f"{hash2}: table {tab}")
-        
+
         col = select(Data.val_num).where(
             Data.hash2 == hash2, Data.tab == tab, Data.col == 0
         )
         vals = pd.read_sql(col, session.connection())
         if 1 not in vals.diff().mode().T.values:
             continue
-        
-        N+=1
+
+        N += 1
         upd = (
             update(Data)
             .where((Data.hash2 == hash2) & (Data.tab == tab) & (Data.col == 0))
@@ -343,7 +348,7 @@ def mark_number_cols(session: Session):
         )
         session.execute(upd)
     session.commit()
-    print(f'Marked {N} columns as pagination.')
+    print(f"Marked {N} columns as pagination.")
 
 
 def clean_val_db(column):
@@ -382,12 +387,23 @@ def clean_val_db(column):
 
 
 def clean_vals(session: Session):
+    dash = "-–"
+    lt = "<˂"
+    pats = {
+        "range": f"^[{dash}{lt}]?\s*\d+[,\.\d]*\s*[{dash}]+\s*\d+[,\.\d]*\s*$",
+        "all_text": "^\D+$",
+        "LOQ": f"^\W*[{dash}{lt}]\s*\d|(^|.*[\s\W])u[{dash}\.\s]*b",
+        "LOD": f"(^|.*[{dash}\s\W])[nu][\.\s]*n|^0([,\.]0*)?$",
+        "not_measured": f"(^|.*[\s\W])n[{dash}\.\s]*[gb]|.*o(\.|hne)\s*[gb](efund)?",
+        "blank": f"^[{dash}_\s]+$",
+    }
     # update vals
     upd_val = (
         update(Data)
         .values(val_num=clean_val_db(Data.val))
         .where(
-            Data.val.regexp_match("\d-") != True,
+            Data.val.regexp_match(pats["range"]) != True,
+            Data.val.regexp_match(pats["all_text"]) != True,
             Data.param_id != None,
             func.instr(Data.val, func.char(10)) == False,
         )
@@ -400,9 +416,7 @@ def clean_vals(session: Session):
     upd_bg = (
         update(Data)
         .where(
-            func.lower(Data.val).regexp_match(
-                "^\W*[<˂-]\s*\d|(^|.*[\s\W])u[\.\s-]*b", flags=re.I
-            ),
+            func.lower(Data.val).regexp_match(pats["LOQ"], flags=re.I),
             Data.param_id.not_in([49, 867, 771]),
             Data.param_id != None,
             Data.omitted_id == None,
@@ -415,11 +429,7 @@ def clean_vals(session: Session):
         update(Data)
         .where(
             (
-                (
-                    func.lower(Data.val).regexp_match(
-                        "(^|.*[\s\W])[nu][\.\s-]*n|^0([,\.]0*)?$", flags=re.I
-                    )
-                )
+                (func.lower(Data.val).regexp_match(pats["LOD"], flags=re.I))
                 | (Data.val_num == 0)
             )
             & (Data.param_id != None)
@@ -455,16 +465,27 @@ def clean_vals(session: Session):
         update(Data)
         .where(
             (
-                func.lower(Data.val).regexp_match(
-                    "(^|.*[\s\W])n[\.\s-]*[gb]|.*o(\.|hne)\s*[gb](efund)?"
-                )
-                | Data.val.regexp_match("^[-_–\s]+$")
+                func.lower(Data.val).regexp_match(pats["not_measured"])
+                | Data.val.regexp_match(pats["blank"])
             )
             & (Data.param_id != None)
             & (Data.category == None)
             & (Data.omitted_id == None)
         )
         .values(category="NB")
+        .execution_options(synchronize_session="fetch")
+    )
+
+    upd_range = (
+        update(Data)
+        .where(
+            Data.val.regexp_match(pats["range"]) == True,
+            Data.val.not_like('"6_5%-%9_5"'),
+            Data.param_id != None,
+            Data.category == None,
+            Data.omitted_id == None,
+        )
+        .values(category="RANGE")
         .execution_options(synchronize_session="fetch")
     )
 
@@ -478,7 +499,7 @@ def clean_vals(session: Session):
         .values(category="> BG")
     )
 
-    for upd in [upd_bg, upd_nb, upd_nn, upd_val]:
+    for upd in [upd_bg, upd_nb, upd_nn, upd_range, upd_val]:
         session.execute(upd)
         session.commit()
 

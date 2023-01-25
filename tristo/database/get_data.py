@@ -121,14 +121,26 @@ def summary(session: Session):
     results[res_name] = pd.read_sql(query, session.connection())
 
     res_name = "Currentness of Reports:"
-    query = (
-        select(File_Info.date, func.count(File_Info.date).label("Count"))
-        .join(File_Cleaned, File_Cleaned.hash2 == File_Info.hash2)
-        .where(File_Cleaned.status == Status.INSERTED, File_Info.date != None)
-        .group_by(File_Info.date)
-        .order_by(File_Info.date.desc())
-    )
-    results[res_name] = pd.read_sql(query, session.connection())
+    query = """SELECT date 'Year',
+            COUNT(date) 'Counts', 
+    ROUND(100*COUNT(date)/CAST((SELECT COUNT(date) FROM file_info 
+    JOIN file_cleaned ON file_info.hash2=file_cleaned.hash2 
+    WHERE file_cleaned.status=='INSERTED' AND file_info.date NOT NULL) as FLOAT), 2) 'Fraction [%]'
+FROM file_info 
+JOIN file_cleaned ON file_info.hash2=file_cleaned.hash2 
+WHERE file_cleaned.status=='INSERTED' AND file_info.date NOT NULL
+GROUP BY date 
+ORDER BY date DESC;"""
+    # query = (
+    #     select(File_Info.date, func.count(File_Info.date).label("Count"))
+    #     .join(File_Cleaned, File_Cleaned.hash2 == File_Info.hash2)
+    #     .where(File_Cleaned.status == Status.INSERTED, File_Info.date != None)
+    #     .group_by(File_Info.date)
+    #     .order_by(File_Info.date.desc())
+    # )
+    currentness = pd.read_sql(query, session.connection())
+    results[res_name] = currentness
+    currentness.to_excel("currentness of data.xlsx")
 
     res_name = "PDF-files from scanned Documents:"
     query = select(func.count(File_Info.hash2)).where(File_Info.status == Status.SCAN)
@@ -205,6 +217,22 @@ def summary(session: Session):
     )
     results[res_name] = pd.read_sql(query, session.connection())
 
+    res_name = "Parameter Summary"
+    query = """SELECT param.param 'Parameter', 
+            COUNT(data.param_id) 'Value count', 
+            COUNT(DISTINCT data.hash2) 'Report count',
+            ROUND(100*COUNT(DISTINCT data.hash2)/(SELECT CAST(COUNT(DISTINCT hash2) AS FLOAT) FROM data WHERE data.omitted_id IS NULL AND data.val_num NOT NULL AND data.unit_factor NOT NULL), 2) 'Fraction of reports [%]', 
+            IIF(param.origin NOT NULL, param.origin, '') 'Origin', 
+            IIF(param.'limit' NOT NULL, param.'limit'||' '||param.unit ,'') 'Limit'
+        FROM data 
+        JOIN param ON data.param_id=param.id 
+        WHERE data.omitted_id IS NULL AND data.val_num NOT NULL AND data.unit_factor NOT NULL 
+        GROUP BY data.param_id 
+        ORDER BY COUNT(data.param_id) DESC;"""
+    res = pd.read_sql(query, session.connection())
+    results[res_name] = res
+    res.to_excel("observations_per_param.xlsx")
+
     return results
     "Pages with search by Postcode"
 
@@ -264,9 +292,9 @@ def get_data_for_pub(SQL_file: str, session: Session):
         "percent_2020": int(results["N_2020"] / results["N_with_date"] * 100),
         "percent_older_2020": int(
             results["N_older_2020"] / results["N_with_date"] * 100
-        )
-        #'percent_commercial':int(results['']/results['']),
-        #'percent_commercial':int(results['']/results['']),
+        ),
+        'percent_file_with_limit':int(results['N_files_with_limit_col']/results['N_files_in_data'] *100),
+        'percent_file_with_value_range':int(results['N_value_range']/results['N_files_in_data'] * 100),
         #'percent_commercial':int(results['']/results['']),
     }
     results.update(rel)

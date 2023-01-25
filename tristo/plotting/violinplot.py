@@ -27,7 +27,7 @@ def violinplot(param:str, limit:float, unit:str, df:pd.DataFrame, ax=plt.Axes):
     ax.yaxis.set_major_formatter(formatter) 
     lgd = ax.get_legend_handles_labels()
     lgd[0].extend([lim_line,part_lim_line])
-    lgd[1].extend(['Grenz-/Richtwert', '70 % Grenz-/Richtwert'])
+    lgd[1].extend(['Limit or guidance value', '70 % Limit or guidance value'])
     ax.get_legend().remove()
     at = AnchoredText(f'N = {df.index.size}', 'lower center', borderpad=-5, prop={'size':'x-small'})
     ax.add_artist(at)

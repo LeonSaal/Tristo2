@@ -18,8 +18,8 @@ def violin_most_common(session:Session):
         legend = violinplot(*vals, ax=ax)
     fig.legend(*legend, loc='lower center', ncol=2, bbox_to_anchor=(0.5,-0.1))
     plt.tight_layout(w_pad=0.3)
-    fig.text(-.01,0.4,'Konzentration in mg/l', rotation='vertical')
-    fig.savefig(PATH_PLOTS / 'vert_häuf_param.png')
+    fig.text(-.01,0.4,'Concentration in mg/l', rotation='vertical')
+    fig.savefig(PATH_PLOTS / 'dist_frequent_param.png')
 
 def violin_common_org(session:Session):
     ureg=UnitRegistry()
@@ -37,5 +37,5 @@ def violin_common_org(session:Session):
         legend = violinplot(param_name, limit, unit, df, ax=ax)
     fig.legend(*legend, loc='lower center', ncol=2, bbox_to_anchor=(0.5,-0.1))
     plt.tight_layout(w_pad=0.3)
-    fig.text(-.01,0.5,f'Konzentration in {to_unit}', rotation='vertical')
-    fig.savefig(PATH_PLOTS / 'vert_häuf_param_2.png')
+    fig.text(-.01,0.5,f'Concentration in {to_unit}', rotation='vertical')
+    fig.savefig(PATH_PLOTS / 'dist_frequent_param_2.png')

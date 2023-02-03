@@ -9,6 +9,7 @@ from adjustText import adjust_text
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
 from tristo.database import LAU_NUTS, get_vals
 from tristo.database.tables import Response
 
@@ -32,7 +33,7 @@ def geoplot(
     unit: str,
     df: pd.DataFrame,
     session: Session,
-    agg: callable = np.median,
+    agg: callable = np.mean,
     show_cities=False,
     min_pop=5e5,
     save=True,
@@ -51,7 +52,8 @@ def geoplot(
         df[df.category == "BG"].groupby("LAU").agg(agg),
         left_on="LAU_ID",
         right_on="LAU",
-    ).dissolve()
+    )
+    bg_lau = bg_lau.overlay(val_df, how='difference').dissolve()
 
     q_analyzed_laus = select(Response.LAU).distinct()
     analyzed_laus = pd.read_sql(q_analyzed_laus, session.connection())
@@ -63,7 +65,7 @@ def geoplot(
     ).dissolve()
     fig, ax = plt.subplots()
     geo = make_axes_locatable(ax)
-    cbar = geo.append_axes("right", size="5%", pad=-0.5)
+    cbar = geo.append_axes("right", size="5%", pad=-0.7)
 
     country.plot(ax=ax, facecolor=c_uba["lb"], edgecolor=c_uba["dgrey"], lw=0.5)
     if show_laus:
@@ -100,19 +102,19 @@ def geoplot(
         ]
         adjust_text(texts, ax=ax)
 
-    ax.set_title(param)
+    #ax.set_title(param)
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(False)
     backgr(ax)
     bg = patches.RegularPolygon(
-        (0, 0), 5, ec='black', fc=c_uba['lgrey'], label='< BG', linewidth = 0.25)
+        (0, 0), 5, ec='black', fc=c_uba['lgrey'], label='< LOQ', linewidth = 0.25)
     if df.empty:
         label = 'Untersuchte Gemeinden'
     else:
-        label = 'kein Wert'
+        label = 'No data'
     laus = patches.RegularPolygon(
         (0, 0), 5, ec='none', label=label, fc='#097BAD')
     ax.legend(handles=[bg, laus], ncol=2, bbox_to_anchor=(0.5, 0.0))
     if save:
-        fig.savefig(PATH_PLOTS / f"geo_{param}.png", dpi=450)
-    return
+        fig.savefig(PATH_PLOTS / f"geo_{param}", pad_inches=0, bbox_inches='tight')
+    return fig,ax, cbar, val_df.overlay(bg_lau, how='union').dissolve()

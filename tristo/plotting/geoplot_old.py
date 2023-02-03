@@ -12,10 +12,9 @@ import pandas as pd
 
 from ..database import get_vals
 from ..paths import HOME, PATH_SUPP
+from ..utils import download_file
 from .uba_plot import c_uba, cmaps
 from .uba_plot import matplotlib as mpl
-from ..utils import download_file
-
 
 lau_file = 'ref-lau-2020-01m.shp'
 lau_url = f'https://gisco-services.ec.europa.eu/distribution/v2/lau/download/{lau_file}'

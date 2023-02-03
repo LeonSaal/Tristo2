@@ -115,6 +115,7 @@ class Param(Base):
     id = Column(Integer, primary_key=True)
     param = Column(String)
     alias = Column(String)
+    param_en = Column(String)
     regex = Column(String)
     limit = Column(String)
     unit = Column(String)

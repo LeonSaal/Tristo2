@@ -8,6 +8,31 @@ from tristo.paths import PATH_PLOTS
 plt.style.use('uba')
 import numpy as np
 
+trans={'Nitrat': 'Nitrate',
+  'Elektrische Leitfähigkeit': 'Conductivity',
+  'Sulfat': 'Sulfate',
+  'Natrium': 'Sodium',
+  'Chlorid': 'Chloride',
+  'Fluorid': 'Fluoride',
+  'Eisen': 'Iron',
+  'Nitrit': 'Nitrite',
+  'Mangan': 'Manganese',
+  'Ammonium': 'Ammoniume',
+  'Atrazin': 'Atrazine',
+  'Aluminium': 'Aluminium',
+  'Trübung': 'Turbidity',
+  'Blei': 'Lead',
+  'Quecksilber': 'Mercury',
+  'Kupfer': 'Copper',
+  'Nickel': 'Nickel',
+  'Chrom': 'Chromium',
+  'Organisch gebundener Kohlenstoff (TOC)': 'Total organic carbon',
+  'Uran': 'Uranium',
+  'Arsen': 'Arsenic',
+  'Cyanid': 'Cyanide',
+  'Cadmium': 'Cadmium',
+  'Selen': 'Selenium'}
+
 
 def plot_summary(session:Session):
     summa = summary(session=session)
@@ -15,19 +40,20 @@ def plot_summary(session:Session):
     df = summa['Currentness of Reports:']
     df.sort_values('Year').plot(kind='barh', x = 'Year', y='Counts', ylabel = 'Year', xlabel = 'Number of reports', legend=False, ax=ax)# summa['Currentness of Reports:'].
     ax.grid(axis='y')
-    fig.savefig(PATH_PLOTS / 'reports_per_year.png', dpi=300)
+    fig.savefig(PATH_PLOTS / 'reports_per_year')
 
     fig, ax = plt.subplots(figsize = (7,2))
     df = summa['Supplier has n_th result:']
     df.sort_values('N', ascending = False).plot(x='N', y='Fraction', kind = 'barh', legend =False, xlabel = 'Fraction of supplier and community-pages in %', ylabel = 'Position of result', ax =ax)
     ax.grid(axis='y')
-    fig.savefig(PATH_PLOTS / 'position_result.png', dpi=300)
+    fig.savefig(PATH_PLOTS / 'position_result')
 
     fig, ax = plt.subplots(figsize = (7,4))
     df = summa['Parameter Count:']
+    df=df.replace(regex=trans)
     df.nlargest(20,'Count').sort_values('Count', ascending=True).plot(x='param',y='Count', kind='barh', ylabel='', legend=False, xlabel = 'Number of observations', ax=ax)
     ax.grid(axis='y')
-    fig.savefig(PATH_PLOTS / 'frequent_param.png', dpi=300)
+    fig.savefig(PATH_PLOTS / 'frequent_param')
 
     fig, ax = plt.subplots(figsize = (7,2.5))
     ax2 = plt.twinx(ax)
@@ -44,13 +70,14 @@ def plot_summary(session:Session):
     ax1_h,_= ax.get_legend_handles_labels()
     ax2_h,_ = ax2.get_legend_handles_labels()
     plt.legend(ax1_h+ax2_h, ['Frequency', 'Cumulated Frequency'], loc= 'lower center', ncol=2, bbox_to_anchor=(0.5,-0.4))
-    fig.savefig(PATH_PLOTS / 'hist_number_param.png', dpi=300)
+    fig.savefig(PATH_PLOTS / 'hist_number_param')
 
     fig, ax = plt.subplots(figsize = (7,2.5))
     df = summa['Parameter Count:']
-    df.plot(kind='hist', bins = range(0,4000,100), figsize = (7,2), ax = ax)
+    df.plot(kind='hist', bins = range(0,4000,100), figsize = (3,2),logy=True, ax = ax)
     ax.grid(axis='x')
     ax.set_xlabel('Number of observations per parameter')
+    ax.set_ylabel('$\log$ Number of parameters')
     ax.get_legend().remove()
-    fig.savefig(PATH_PLOTS / 'observ_per_param.png', dpi=300)
+    fig.savefig(PATH_PLOTS / 'observ_per_param')
     

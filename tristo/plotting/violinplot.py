@@ -10,13 +10,14 @@ from matplotlib.offsetbox import AnchoredText
 
 plt.style.use('uba')
 
-def violinplot(param:str, limit:float, unit:str, df:pd.DataFrame, ax=plt.Axes):
+def violinplot(param:str, limit:float, unit:str, df:pd.DataFrame, ax=plt.Axes, legend=''):
     df = df.query('category in ["BG", "> BG"]')
     df = df.drop_duplicates('id')
-    categrories = ["BG", "> BG"]
+    df = df.replace(regex={"BG":'LOQ'})
+    categrories = ["LOQ", "> LOQ"]
     for category in categrories:
         if category not in df.category.unique():
-            df = pd.concat([df, pd.DataFrame(['> BG'], columns=['category'])])
+            df = pd.concat([df, pd.DataFrame(['> LOQ'], columns=['category'])])
     df['Parameter']=f'{param}'
     sns.violinplot(data=df, x='Parameter', y='val' , hue='category', split=True, inner='stick', ax=ax, scale='count', cut=0, linewidth=.5, hue_order=categrories, palette=['C0','C2'])
     lim_line = ax.axhline(limit, ls='dashed', c='C5')
@@ -27,7 +28,7 @@ def violinplot(param:str, limit:float, unit:str, df:pd.DataFrame, ax=plt.Axes):
     ax.yaxis.set_major_formatter(formatter) 
     lgd = ax.get_legend_handles_labels()
     lgd[0].extend([lim_line,part_lim_line])
-    lgd[1].extend(['Limit or guidance value', '70 % Limit or guidance value'])
+    lgd[1].extend([legend, f'70 % {legend}'])
     ax.get_legend().remove()
     at = AnchoredText(f'N = {df.index.size}', 'lower center', borderpad=-5, prop={'size':'x-small'})
     ax.add_artist(at)

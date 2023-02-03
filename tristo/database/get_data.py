@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from docx import Document
 from docx.enum.dml import MSO_THEME_COLOR_INDEX
-from sqlalchemy import Float, cast, func, select
+from sqlalchemy import Float, case, cast, func, select
 from sqlalchemy.orm import Session
 
 from ..config import LOG_FMT
@@ -20,8 +20,8 @@ logging.basicConfig(level=logging.INFO, format=LOG_FMT, style="{")
 logger = logging.getLogger(__name__)
 
 
-def get_vals(id: int, session: Session, thresh=1.2):
-    param_query = select(Param.param, cast(Param.limit, Float), Param.unit).where(
+def get_vals(id: int, session: Session, alias=Param.param_en):
+    param_query = select(case((alias!=None, alias),else_=Param.param), cast(Param.limit, Float), Param.unit).where(
         Param.id == id
     )
     param, limit, unit = session.execute(param_query).one()
@@ -41,7 +41,6 @@ def get_vals(id: int, session: Session, thresh=1.2):
             Data.omitted_id == None,
             Data.val_num != None,
             Data.unit_factor != None,
-            Data.val_num * Data.unit_factor <= thresh * limit,
         )
     )
     df = pd.read_sql(query, session.connection())
@@ -211,6 +210,7 @@ ORDER BY date DESC;"""
             Data.val_num != None,
             Data.unit_factor != None,
             Data.val_num * Data.unit_factor <= 1.2 * cast(Param.limit, Float),
+            Data.category.in_(('BG','> BG'))
         )
         .group_by(Data.param_id)
         .order_by(func.count(Data.param_id))
@@ -295,8 +295,10 @@ def get_data_for_pub(SQL_file: str, session: Session):
         ),
         'percent_file_with_limit':int(results['N_files_with_limit_col']/results['N_files_in_data'] *100),
         'percent_file_with_value_range':int(results['N_value_range']/results['N_files_in_data'] * 100),
-        #'percent_commercial':int(results['']/results['']),
+        'percent_candidate_data':int(results['N_candidate_data']/results['N_all_data'] * 100),
+        #'percent_':int(results['']/results['']*100),
     }
+
     results.update(rel)
     save_data_as_bookmarks(res=results, fname=SQL_file)
 

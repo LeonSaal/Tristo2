@@ -46,4 +46,4 @@ def boxplot_param(param_name, limit, unit, df:pd.DataFrame, save=True):
         )
     )
     if save:
-        fig.savefig(PATH_PLOTS / f'box_{param_name}.png')
+        fig.savefig(PATH_PLOTS / f'box_{param_name}')

@@ -4,7 +4,8 @@ import re
 
 import pandas as pd
 from pint import UnitRegistry
-from sqlalchemy import Float, and_, cast, delete, func, select, update
+from sqlalchemy import (Float, and_, case, cast, delete, func, literal, select,
+                        update)
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
@@ -215,15 +216,46 @@ def mark_data(session: Session, overwrite=False):
     mark_params(session=session)
 
 
+def mark_outlier(session: Session, thresh=1):
+    outlier = (
+        select(Data.id)
+        .join(Param)
+        .where(
+            Data.val_num * Data.unit_factor > thresh * cast(Param.limit, Float),
+            Data.omitted_id == None,
+            cast(Param.limit, Float) != 0,
+        )
+    )
+    set_outlier = (
+        update(Data)
+        .where(Data.id.in_(outlier))
+        .values(omitted_id=-3)
+        .execution_options(synchronize_session="fetch")
+    )
+    logger.info("Marking outlier...")
+    session.execute(set_outlier)
+    session.commit()
+
+
 def clean_data_table(session: Session, overwrite=False):
     if overwrite:
-        set_none = update(Data).values(val_num=None, category=None, unit_factor=None)
+        set_none = (
+            update(Data)
+            .values(
+                val_num=None,
+                category=None,
+                unit_factor=None,
+                omitted_id=case((Data.omitted_id < 0, None), else_=Data.omitted_id),
+            )
+            .execution_options(synchronize_session="fetch")
+        )
         session.execute(set_none)
         session.commit()
     clean_vals(session=session)
     get_unit_factor(session=session)
     mark_limit_cols(session=session)
     mark_number_cols(session=session)
+    mark_outlier(session=session)
 
 
 def rem_dup_param(session: Session):
@@ -300,7 +332,7 @@ def mark_limit_cols(session: Session):
                 (
                     func.abs(Data.val_num * Data.unit_factor - cast(Param.limit, Float))
                     <= 1e-6
-                )
+                ),
             )
             | and_(Param.id == 48, Data.val.like("6_5%-%9_5"))
             | (Data.val.like("%grenz%"))
@@ -352,9 +384,8 @@ def mark_number_cols(session: Session):
 
 
 def clean_val_db(column):
-    logger.info("Cleaning values:")
+    logger.info("Cleaning values...")
     temp = func.trim(column)
-
     replacements = {
         "\n": "",
         "mg/L": "",
@@ -383,6 +414,14 @@ def clean_val_db(column):
     for pat, sub in replacements.items():
         temp = func.replace(temp, pat, sub)
 
+    temp = case(
+        (temp.like("00%"), literal("0.0") + func.substring(temp, 3)),
+        (
+            (temp.like("0%") & temp.not_like("0.%")),
+            literal("0.") + func.substring(temp, 2),
+        ),
+        else_=temp,
+    )
     return cast(temp, Float)
 
 
@@ -412,6 +451,19 @@ def clean_vals(session: Session):
     session.execute(upd_val)
     session.commit()
 
+    ##update negative vals
+    upd_val = (
+        update(Data)
+        .where(
+            Data.val_num != None,
+            func.trim(Data.val).like("-%") | func.trim(Data.val).like("–%"),
+        )
+        .values(val_num=-1 * Data.val_num)
+        .execution_options(synchronize_session="fetch")
+    )
+    session.execute(upd_val)
+    session.commit()
+
     # Update category
     upd_bg = (
         update(Data)
@@ -424,6 +476,14 @@ def clean_vals(session: Session):
         .values(category="BG")
         .execution_options(synchronize_session="fetch")
     )
+
+    upd_bg_2 = '''UPDATE data SET category='BG' WHERE id IN (SELECT id FROM data 
+            JOIN 
+            (SELECT hash2, tab, col 
+            FROM data 
+            WHERE (val LIKE 'Best.%' OR val LIKE '%BG%' OR val LIKE '%besti%') AND val NOT LIKE '%legende%') sel 
+            ON sel.col=data.col AND sel.hash2=data.hash2 AND sel.tab=data.tab)'''
+
 
     upd_nn = (
         update(Data)
@@ -480,7 +540,8 @@ def clean_vals(session: Session):
         update(Data)
         .where(
             Data.val.regexp_match(pats["range"]) == True,
-            Data.val.not_like('"6_5%-%9_5"'),
+            Data.val.not_like("6_5%-%9_5"),
+            Data.val.not_like("____-__"),
             Data.param_id != None,
             Data.category == None,
             Data.omitted_id == None,
@@ -499,7 +560,7 @@ def clean_vals(session: Session):
         .values(category="> BG")
     )
 
-    for upd in [upd_bg, upd_nb, upd_nn, upd_range, upd_val]:
+    for upd in [upd_bg, upd_bg_2, upd_nb, upd_nn, upd_range, upd_val]:
         session.execute(upd)
         session.commit()
 

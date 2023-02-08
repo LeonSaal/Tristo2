@@ -1,5 +1,6 @@
 from re import S
 
+import matplotlib.colors as mpl_col
 import matplotlib.patches as patches
 import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
@@ -10,14 +11,23 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tristo.database import LAU_NUTS, get_vals
+from tristo.database import LAU_NUTS
 from tristo.database.tables import Response
 
 from ..paths import PATH_PLOTS
 from .load_geo_data import cities, country, shapes_DE, states
-from .uba_plot import backgr, c_uba, cmaps
 
-plt.style.use('uba')
+colors = ['#61B931', '#125D86', '#009BD5', '#007626', '#FABB00',
+          '#83053C', '#CE1F5E', '#D78400', '#9D579A', '#622F63', '#EDEDEE', '#4B4B4D','#9C9C9C']
+cnames = ['lgr', 'db', 'lb', 'dgr', 'y', 'm', 'pink', 'or', 'lv', 'dv', 'lgrey', 'dgrey', 'mgrey']
+c_uba = {name: color for name, color in zip(cnames, colors)}
+
+cmaps = {'cbar': mpl_col.LinearSegmentedColormap.from_list(
+    'UBA', [mpl_col.to_rgb(c_uba['dgr']), mpl_col.to_rgb(c_uba['or']), mpl_col.to_rgb(c_uba['m'])]),
+    'red': mpl_col.LinearSegmentedColormap.from_list(
+    'red', [mpl_col.to_rgb(c_uba['pink'])]*2),
+    'grey': mpl_col.LinearSegmentedColormap.from_list(
+    'red', [mpl_col.to_rgb(c_uba['lgrey'])]*2)}
 
 
 def get_cities(min_pop:int, session:Session):
@@ -53,7 +63,8 @@ def geoplot(
         left_on="LAU_ID",
         right_on="LAU",
     )
-    bg_lau = bg_lau.overlay(val_df, how='difference').dissolve()
+    if not df.empty:
+        bg_lau = bg_lau.overlay(val_df, how='difference').dissolve()
 
     q_analyzed_laus = select(Response.LAU).distinct()
     analyzed_laus = pd.read_sql(q_analyzed_laus, session.connection())
@@ -64,30 +75,31 @@ def geoplot(
         right_on="LAU",
     ).dissolve()
     fig, ax = plt.subplots()
-    geo = make_axes_locatable(ax)
-    cbar = geo.append_axes("right", size="5%", pad=-0.7)
-
-    country.plot(ax=ax, facecolor=c_uba["lb"], edgecolor=c_uba["dgrey"], lw=0.5)
+    
+    country.plot(ax=ax, facecolor=c_uba["mgrey"], edgecolor=c_uba["dgrey"], lw=0.5)
     if show_laus:
-        laus_df.plot(ax=ax, facecolor=c_uba["db"], edgecolor='none', alpha=0.5)
+        laus_df.plot(ax=ax, facecolor=c_uba["lb"], edgecolor='none', alpha=1)
 
-    val_df.plot(
-        column="val",
-        ax=ax,
-        categorical=False,
-        legend=True,
-        cmap=cmaps["cbar"],
-        cax=cbar,
-        legend_kwds={"label": unit},
-        vmax=limit,
-        vmin=0,
-    )
+    if not df.empty:
+        geo = make_axes_locatable(ax)
+        cbar = geo.append_axes("right", size="5%", pad=-0.25)
+        val_df.plot(
+            column="val",
+            ax=ax,
+            categorical=False,
+            legend=True,
+            cmap=cmaps["cbar"],
+            cax=cbar,
+            legend_kwds={"label": unit},
+            vmax=limit,
+            vmin=0,
+        )
     bg_lau['category'] = 'BG'
     bg_lau.plot(ax=ax, column='category',cmap=cmaps["grey"], label="test", alpha=1)
     states.plot(ax=ax, lw=0.25, edgecolor=c_uba["dgrey"], facecolor="none")
     if show_cities:
         cities_subset.plot(
-            ax=ax, markersize=4, edgecolor='none', facecolor=c_uba["m"], lw=0.5
+            ax=ax, markersize=4, edgecolor=c_uba["dgrey"], facecolor='none', lw=0.75
         )
         texts = [
             ax.text(
@@ -95,7 +107,7 @@ def geoplot(
                 city.geometry.y,
                 city.URAU_NAME,
                 alpha=0.75,
-                fontsize='x-small',
+                fontsize=7,
                 path_effects=[pe.withStroke(linewidth=1, foreground=c_uba["lgrey"])],
             )
             for city in cities_subset.itertuples()
@@ -103,18 +115,15 @@ def geoplot(
         adjust_text(texts, ax=ax)
 
     #ax.set_title(param)
-    ax.get_xaxis().set_visible(False)
-    ax.get_yaxis().set_visible(False)
-    backgr(ax)
-    bg = patches.RegularPolygon(
+    ax.set_axis_off()
+    if not df.empty:
+        bg = patches.RegularPolygon(
         (0, 0), 5, ec='black', fc=c_uba['lgrey'], label='< LOQ', linewidth = 0.25)
-    if df.empty:
-        label = 'Untersuchte Gemeinden'
-    else:
-        label = 'No data'
-    laus = patches.RegularPolygon(
-        (0, 0), 5, ec='none', label=label, fc='#097BAD')
-    ax.legend(handles=[bg, laus], ncol=2, bbox_to_anchor=(0.5, 0.0))
+        laus = patches.RegularPolygon(
+        (0, 0), 5, ec='none', label='No data', fc=c_uba['lb'])
+        ax.legend(handles=[bg, laus], ncol=2, bbox_to_anchor=(0.5, -0.1))
+
+    fig.set_size_inches(3.35,3.35)
     if save:
-        fig.savefig(PATH_PLOTS / f"geo_{param}", pad_inches=0, bbox_inches='tight')
-    return fig,ax, cbar, val_df.overlay(bg_lau, how='union').dissolve()
+        fig.savefig(PATH_PLOTS / f"geo_{param}", pad_inches=0.05, bbox_inches='tight')
+    return fig,ax, cbar if not df.empty else None, val_df.overlay(bg_lau, how='union').dissolve() if not bg_lau.empty else None

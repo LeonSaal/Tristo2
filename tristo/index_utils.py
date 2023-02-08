@@ -55,40 +55,6 @@ def make_index_col(df, **kwargs):
     return df
 
 
-# def set_index_col(data, **kwargs):
-#     col = get_col(data, KEYWORDS["PARAMS"], **kwargs)
-#     if len(col) == 1:
-#         index_col = data[col].copy()
-#         index_col.fillna(data.index.to_series(), inplace=True)
-#         index_col.replace(regex=TO_REPLACE["index"], inplace=True)
-#         data[col] = index_col
-#         data.set_index(*col, inplace=True)
-#         data.index.rename("param", inplace=True)
-#         return data[~data.index.duplicated()]
-
-#     elif len(col) > 1:
-#         return set_index_col(split_lengthwise(data, col))
-
-#     else:
-#         return data
-
-
-# def split_lengthwise(df):
-#     index_col = get_col(df, PATS["PARAMS"], thresh=0.1)
-#     if index_col.empty:
-#         return df
-#     dfs = []
-#     end = df.columns.size
-#     locs = [df.columns.get_loc(col) for col in index_col] + [end]
-#     for i, loc in enumerate(locs[1:]):
-#         sel = slice(None), slice(locs[i], loc)
-#         oldies = df.columns[sel[1]]
-#         newbs = pd.RangeIndex(0, len(oldies))
-#         mapper = {old: new for old, new in zip(oldies, newbs)}
-#         dfs.append(df.iloc[sel].rename(mapper, axis=1))
-#     return pd.concat(dfs, ignore_index=True)
-
-
 def get_orientation(df, pat, thresh=0.5):
     mask = df.apply(lambda x: x.astype("string").str.match(pat))
     rel_mask_0 = mask.sum(axis=0).divide(df.shape[0])

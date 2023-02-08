@@ -1,20 +1,15 @@
 import logging
-import re
 
 import docx
-import numpy as np
 import pandas as pd
 from docx import Document
-from docx.enum.dml import MSO_THEME_COLOR_INDEX
 from sqlalchemy import Float, case, cast, func, select
 from sqlalchemy.orm import Session
 
 from ..config import LOG_FMT
 from ..status import Status
-# from .clean_data import clean_val, df_clean_unit
-# from .convert import convert_val
 from .tables import (WVG, WVG_LAU, Data, File_Cleaned, File_Index, File_Info,
-                     Param, Response, Unit)
+                     Param, Response)
 
 logging.basicConfig(level=logging.INFO, format=LOG_FMT, style="{")
 logger = logging.getLogger(__name__)
@@ -234,7 +229,6 @@ ORDER BY date DESC;"""
     res.to_excel("observations_per_param.xlsx")
 
     return results
-    "Pages with search by Postcode"
 
 
 # https://stackoverflow.com/questions/57586400/how-to-create-bookmarks-in-a-word-document-then-create-internal-hyperlinks-to-t
@@ -302,38 +296,3 @@ def get_data_for_pub(SQL_file: str, session: Session):
     results.update(rel)
     save_data_as_bookmarks(res=results, fname=SQL_file)
 
-
-# def get_vals(id: int, session: Session, aggf: callable = np.median, thresh=1.2):
-#     query = (
-#         select(Response.LAU, Data.unit, Data.val).distinct()
-#         .join(File_Index, Response.hash == File_Index.hash)
-#         .join(Data, Data.hash2 == File_Index.hash2)
-#         .where(
-#             Data.param_id == id,
-#             Data.omitted_id == None,
-#         )
-#     )
-#     param_query = select(Param.param, Param.limit, Param.unit).where(Param.id == id)
-#     param, limit, unit = session.execute(param_query).one()
-
-#     df = pd.read_sql(query, session.connection(), coerce_float=False)
-#     df = df_clean_unit(df, session)
-
-#     df["category"] = np.nan
-#     df["category"] = df.val.apply(
-#         lambda x: "< BG" if re.match("\s*[-<]", x) else "> BG"
-#     )
-#     df.val = df.val.apply(clean_val)
-#     df = df.dropna()
-#     if df.empty:
-#         return param, limit, unit, df
-
-#     df.val = df.T.apply(lambda x: convert_val(x.val, x.unit, unit)).T
-#     df = df.drop(["unit"], axis=1)
-#     if limit:
-#         limit = clean_val(limit)
-#         if limit:
-#             df.loc[((df.val>1.2*limit) | (df.val==0)), 'category'] = 'OUTLIER'
-#             df.loc[df.val==limit, 'category'] = 'LIMIT'
-
-#     return param, limit, unit, df

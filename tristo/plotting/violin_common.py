@@ -16,9 +16,10 @@ def violin_most_common(session: Session):
     for param_id, ax in zip(param_ids, axs):
         vals = get_vals(param_id, session=session)
         legend = violinplot(*vals, ax=ax, legend = 'Limit [1]')
-    fig.legend(*legend, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.1))
+    fig.legend(*legend, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.3))
     plt.tight_layout(w_pad=0.3)
-    fig.text(-0.01, 0.4, "Concentration in mg/L", rotation="vertical")
+    fig.text(-0.01, 0.35, "Concentration in mg/L", rotation="vertical")
+    fig.set_size_inches(6.7, 2.5)
     fig.savefig(PATH_PLOTS / "dist_frequent_param")
 
 
@@ -32,8 +33,9 @@ def violin_common_org(session: Session):
         factor = ureg.Quantity(unit).to(to_unit).magnitude
         df.val = df.val * factor
         limit = limit * factor
-        legend = violinplot(param_name, limit, unit, df, ax=ax, legend= 'Respective $^1$Limit [1] or $^2$guidance value [26]')
-    fig.legend(*legend, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.1))
+        legend = violinplot(param_name, limit, unit, df, ax=ax, legend= 'Respective $^1$Limit [1] or $^2$guidance value [32]')
+    fig.legend(*legend, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.3))
     plt.tight_layout(w_pad=0.3)
-    fig.text(-0.01, 0.5, f"Concentration in {to_unit}", rotation="vertical")
+    fig.text(-0.01, 0.35, f"Concentration in {to_unit}", rotation="vertical")
+    fig.set_size_inches(6.7, 2.5)
     fig.savefig(PATH_PLOTS / "dist_frequent_param_2")

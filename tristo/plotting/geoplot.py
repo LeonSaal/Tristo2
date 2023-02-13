@@ -47,7 +47,8 @@ def geoplot(
     show_cities=False,
     min_pop=5e5,
     save=True,
-    show_laus=False
+    show_laus=False,
+    ax = plt.Axes
 ):
     cities_subset=get_cities(min_pop=min_pop, session=session)
 
@@ -74,7 +75,6 @@ def geoplot(
         left_on="LAU_ID",
         right_on="LAU",
     ).dissolve()
-    fig, ax = plt.subplots()
     
     country.plot(ax=ax, facecolor=c_uba["mgrey"], edgecolor=c_uba["dgrey"], lw=0.5)
     if show_laus:
@@ -123,7 +123,7 @@ def geoplot(
         (0, 0), 5, ec='none', label='No data', fc=c_uba['lb'])
         ax.legend(handles=[bg, laus], ncol=2, bbox_to_anchor=(0.5, -0.1))
 
-    fig.set_size_inches(3.35,3.35)
-    if save:
-        fig.savefig(PATH_PLOTS / f"geo_{param}", pad_inches=0.05, bbox_inches='tight')
-    return fig,ax, cbar if not df.empty else None, val_df.overlay(bg_lau, how='union').dissolve() if not bg_lau.empty else None
+    # fig.set_size_inches(3.35,3.35)
+    # if save:
+    #     fig.savefig(PATH_PLOTS / f"geo_{param}", pad_inches=0.05, bbox_inches='tight')
+    # return fig,ax, cbar if not df.empty else None, val_df.overlay(bg_lau, how='union').dissolve() if not bg_lau.empty else None

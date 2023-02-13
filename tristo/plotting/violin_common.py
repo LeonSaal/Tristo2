@@ -15,7 +15,7 @@ def violin_most_common(session: Session):
     fig, axs = plt.subplots(1, len(param_ids))
     for param_id, ax in zip(param_ids, axs):
         vals = get_vals(param_id, session=session)
-        legend = violinplot(*vals, ax=ax, legend = 'Limit [1]')
+        legend = violinplot(*vals, ax=ax, legend = 'Limit')
     fig.legend(*legend, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.3))
     plt.tight_layout(w_pad=0.3)
     fig.text(-0.01, 0.35, "Concentration in mg/L", rotation="vertical")
@@ -33,7 +33,7 @@ def violin_common_org(session: Session):
         factor = ureg.Quantity(unit).to(to_unit).magnitude
         df.val = df.val * factor
         limit = limit * factor
-        legend = violinplot(param_name, limit, unit, df, ax=ax, legend= 'Respective $^1$Limit [1] or $^2$guidance value [32]')
+        legend = violinplot(param_name, limit, unit, df, ax=ax, legend= 'Respective $^1$Limit or $^2$guidance value')
     fig.legend(*legend, loc="lower center", ncol=2, bbox_to_anchor=(0.5, -0.3))
     plt.tight_layout(w_pad=0.3)
     fig.text(-0.01, 0.35, f"Concentration in {to_unit}", rotation="vertical")

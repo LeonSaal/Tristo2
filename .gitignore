@@ -1,13 +1,8 @@
 *.jpeg
 *.pdf
 *.png
-*.xlsx
-*.db
-*.xls*
 *.jpg
 *.txt
-*.ipynb
-*.ipynb
 *.csv
 *.pyc
 *.zip

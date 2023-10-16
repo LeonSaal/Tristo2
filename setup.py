@@ -41,8 +41,9 @@ setuptools.setup(
         'adjustText',
         'ghostscript',
         'xlrd',
-        'docx',
-        'tqdm'
+        'python-docx',
+        'tqdm',
+        'geopandas'
     ],
     python_requires=">=3.10.4",
 )

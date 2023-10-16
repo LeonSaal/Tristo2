@@ -43,7 +43,8 @@ setuptools.setup(
         'xlrd',
         'python-docx',
         'tqdm',
-        'geopandas'
+        'geopandas',
+        'seaborn'
     ],
     python_requires=">=3.10.4",
 )

@@ -40,7 +40,9 @@ setuptools.setup(
         "thefuzz[speedup]",
         'adjustText',
         'ghostscript',
-        'xlrd'
+        'xlrd',
+        'docx',
+        'tqdm'
     ],
     python_requires=">=3.10.4",
 )

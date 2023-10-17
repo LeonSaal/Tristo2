@@ -18,7 +18,7 @@ def violinplot(param:str, limit:float, unit:str, df:pd.DataFrame, ax=plt.Axes, l
         if category not in df.category.unique():
             df = pd.concat([df, pd.DataFrame(['> LOQ'], columns=['category'])])
     df['Parameter']=f'{param}'
-    sns.violinplot(data=df, x='Parameter', y='val' , hue='category', split=True, inner='stick', ax=ax, scale='count', cut=0, linewidth=.5, hue_order=categrories, palette=['C0','C2'])
+    sns.violinplot(data=df, x='Parameter', y='val' , hue='category', split=True, inner='stick', ax=ax, density_norm='count', cut=0, linewidth=.5, hue_order=categrories, palette=['C0','C2'])
     lim_line = ax.axhline(limit, ls='dashed', c='C5')
     part_lim_line = ax.axhline(limit*0.3, ls='dashed', c='C7', xmax=0.5)
     ax.set_ylabel('')
